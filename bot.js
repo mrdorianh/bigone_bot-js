@@ -7,7 +7,7 @@ API.init({
   secret: process.env["bigOneApiSecret"],
 });
 
-let shouldCancel = false;
+let DEBUG = false;
 
 async function getContractPositions() {
   try {
@@ -31,14 +31,16 @@ async function getContractPositions() {
 }
 
 let lastPos = undefined;
-const holdAmount = 8000;
+const holdAmount = 4000;
 
 function executeBTCUSD() {
   API.contract.accounts
     .getCashandPositionDetail()
     .then((resp) => {
-      if(resp === undefined){
-        console.log('response is undefined')
+      if (resp === undefined) {
+        if (DEBUG) {
+          console.log("response is undefined");
+        }
         return;
       }
       let pos = [];
@@ -51,29 +53,41 @@ function executeBTCUSD() {
         });
         return pos;
       } catch (err) {
-        console.log(err);
+        if (DEBUG) {
+          console.log(err);
+        }
         return;
       }
     })
     .then((d) => {
-      if(d === undefined){
-        console.log('response is undefined')
+      if (d === undefined) {
+        if (DEBUG) {
+          console.log("response is undefined");
+        }
         return;
       }
       const currentPos = d.find((p) => p.symbol === "BTCUSD");
 
       if (currentPos.size === 0) {
-        console.log(`\n${currentPos.symbol} position is current inactive...\n`);
+        {
+          console.log(
+            `\n${currentPos.symbol} position is current inactive...\n`
+          );
+        }
         return;
       } else {
         if (lastPos) {
-          console.log(`\nLast Position is: ${lastPos.size}`);
-          console.log(`Current Position is: ${currentPos.size}`);
+          if (DEBUG) {
+            console.log(`\nLast Position is: ${lastPos.size}`);
+            console.log(`Current Position is: ${currentPos.size}`);
+          }
 
           //NEW POSITION TRIGGERED
           if (lastPos.size != currentPos.size) {
             //adjust stoploss
-            console.log("New Position Triggered!\n\n\n\n");
+            if (DEBUG) {
+              console.log("New Position Triggered!\n\n\n\n");
+            }
             lastPos = currentPos;
 
             if (currentPos.size > 0) {
@@ -108,18 +122,25 @@ function executeBTCUSD() {
                 }
               } else {
                 //already at loss on postion update
-                
               }
             }
           } else {
             //POSITION IS STILL THE SAME
-            console.log('Position is still the same...checking for excess losses...')
+            if (DEBUG) {
+              console.log(
+                "Position is still the same...checking for excess losses..."
+              );
+            }
             if (currentPos.unrealizedPnl < -0.005) {
               //Minimize Losses
               //PLACE ORDER
               const sellSize = Math.min(currentPos.size - holdAmount, 2000);
               if (sellSize > 0) {
-                console.log(`\nSelling excess holdings due to accumulated losses. Count: ${sellSize}\n`)
+                if (DEBUG) {
+                  console.log(
+                    `\nSelling excess holdings due to accumulated losses. Count: ${sellSize}\n`
+                  );
+                }
                 API.contract.orders
                   .createOrder(
                     sellSize,
@@ -134,13 +155,23 @@ function executeBTCUSD() {
                       priceType: "MARKET_PRICE",
                     }
                   )
-                  .then((order) => console.log(order));
+                  .then((order) => {
+                    if (DEBUG) {
+                      console.log(order);
+                    }
+                  });
               }
             }
-            console.log(`Not closing... Current unrealized pnl is: ${currentPos.unrealizedPnl}\n`)
+            if (DEBUG) {
+              console.log(
+                `Not closing... Current unrealized pnl is: ${currentPos.unrealizedPnl}\n`
+              );
+            }
           }
         } else {
-          console.log(`\nLast position is undefined!`);
+          if (DEBUG) {
+            console.log(`\nLast position is undefined!`);
+          }
           lastPos = currentPos;
         }
 
@@ -148,6 +179,5 @@ function executeBTCUSD() {
       }
     });
 }
-
 
 setInterval(executeBTCUSD, 700);
