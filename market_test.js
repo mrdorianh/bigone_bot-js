@@ -14,16 +14,16 @@ API.init({
 // })
 
 
-API.market.getBalance().then(resp => {
-  console.log(resp.data.filter((d)=>{
-    return d.balance != '0';
-  }))
-})
-
-
-// API.createOrder('ETH-USDT', 'BID', '400', '0.06').then(data => {
-//   console.log(data)
+// API.market.getBalance().then(resp => {
+//   console.log(resp.data.filter((d)=>{
+//     return d.balance != '0';
+//   }))
 // })
+
+
+API.spot.createOrder('ETH-USDT', 'BID', '400', '0.001').then(data => {
+  console.log(data)
+})
 
 // API.cancelOrder('63894594').then(data => {
 //   console.log(data)
