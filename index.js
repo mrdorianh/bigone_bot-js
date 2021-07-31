@@ -252,3 +252,4 @@ BIGONE.contract.orders.createOrder = async (size, symbol, type, side, price, red
 // End Contract Scoped Methods
 
 module.exports = BIGONE
+ 
