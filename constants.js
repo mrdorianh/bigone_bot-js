@@ -1,0 +1,13 @@
+const Constants = {}
+Constants.eventNames = {
+    PHASE_CHANGED: "PHASE_CHANGED",
+    ACCUMULATE_ORDER_TRIGGERED: 'ACCUMULATE_ORDER_TRIGGERED',
+    LOADING_ORDER_TRIGGERED: 'LOADING_ORDER_TRIGGERED',
+    TP_ORDER_TRIGGERED: 'TP_ORDER_TRIGGERED'
+  };
+Constants.phases = {
+    ACCUMULATE: 'ACCUMULATE',
+    LOADING: 'LOADING'
+}
+
+module.exports = Constants;

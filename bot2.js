@@ -11,7 +11,6 @@ API.init({
 const BOT_SETTINGS = require("./bot_config.js");
 const HELPER = require("./helper.js");
 const phases = {
-  INVACTIVE: "INVACTIVE",
   ACCUMULATE: "ACCUMULATE",
   LOADING: "LOADING",
 };
