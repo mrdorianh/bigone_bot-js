@@ -1,7 +1,7 @@
 {
-  "name": "bigone_sdk-js",
+  "name": "bigone_bot-js",
   "version": "1.0.0",
-  "description": "Big.One Exchange SDK for Market and Contracts",
+  "description": "Big.One Exchange bot for Contracts",
   "main": "index.js",
   "dependencies": {
     "dotenv": "^10.0.0",
@@ -15,7 +15,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mrdorianh/bigone_contracts-js.git"
+    "url": "git+https://github.com/mrdorianh/bigone_bot-js.git"
   },
   "keywords": [
     "[bigone",
@@ -30,7 +30,7 @@
   "author": "mrdorianh",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/mrdorianh/bigone_contracts-js/issues"
+    "url": "https://github.com/mrdorianh/bigone_bot-js/issues"
   },
-  "homepage": "https://github.com/mrdorianh/bigone_contracts-js#readme"
+  "homepage": "https://github.com/mrdorianh/bigone_bot-js#readme"
 }

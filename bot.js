@@ -1,6 +1,6 @@
 require("dotenv").config();
 
-const API = require("./index.js");
+const API = require("./bigoneapi.js");
 
 API.init({
   key: process.env["bigOneApiKey"],
@@ -152,7 +152,7 @@ function executeBTCUSD() {
                     {
                       type: "REACH",
                       price: currentPos.markPrice - 25,
-                      priceType: "MARKET_PRICE",
+                      priceType: "MARKET_PRICE"
                     }
                   )
                   .then((order) => {
