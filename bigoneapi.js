@@ -1,5 +1,9 @@
+// ▀█▀ ░█▄─░█ ▀█▀ ▀▀█▀▀
+// ░█─ ░█░█░█ ░█─ ─░█──
+// ▄█▄ ░█──▀█ ▄█▄ ─░█──
 const fetch = require('node-fetch')
 const jwt = require('jsonwebtoken')
+const HELPER = require('./helper')
 const API = {
   SPOT_URL: "https://big.one/api/v3",
   CONTRACT_URL: "https://big.one/api/contract/v2"
@@ -18,8 +22,6 @@ const BIGONE = {
     trades: {}
   }
 }
-
-//Set base methods
 
 BIGONE.init = cfg => {
   config = cfg
@@ -46,7 +48,10 @@ BIGONE.getToken = () => {
 }
 
 
-///Set Market Scoped Methods
+
+// ░█▀▄▀█ █▀▀█ █▀▀█ █─█ █▀▀ ▀▀█▀▀ 
+// ░█░█░█ █▄▄█ █▄▄▀ █▀▄ █▀▀ ──█── 
+// ░█──░█ ▀──▀ ▀─▀▀ ▀─▀ ▀▀▀ ──▀──
 
 /**
  * 创建订单（买卖）
@@ -178,9 +183,14 @@ BIGONE.spot.getDepth = (symbol) => {
   }).then(res => res.json())
 }
 
-// End Market Scoped Methods
 
-/// Set Contract Scoped Methods
+
+ 
+// ░█▀▀█ ░█▀▀▀█ ░█▄─░█ ▀▀█▀▀ ░█▀▀█ ─█▀▀█ ░█▀▀█ ▀▀█▀▀ 
+// ░█─── ░█──░█ ░█░█░█ ─░█── ░█▄▄▀ ░█▄▄█ ░█─── ─░█── 
+// ░█▄▄█ ░█▄▄▄█ ░█──▀█ ─░█── ░█─░█ ░█─░█ ░█▄▄█ ─░█──
+
+
 BIGONE.contract.accounts.getCashandPositionDetail = async () => {
   const url = `${API.CONTRACT_URL}/accounts`
   const token = await BIGONE.getToken()
@@ -218,8 +228,10 @@ BIGONE.contract.orders.createOrder = async (size, symbol, type, side, price, red
     "type": type,
     "side": side,
     "price": price,
-    "reduceOnly": reduceOnly,
-    "conditional": conditionalObj
+    "reduceOnly": reduceOnly
+  }
+  if(conditionalObj != null){
+    preOrder.conditional = conditionalObj;
   }
 
   return fetch(url, {
@@ -235,7 +247,71 @@ BIGONE.contract.orders.createOrder = async (size, symbol, type, side, price, red
     console.log(err);
   }
 }
-// End Contract Scoped Methods
 
+/**
+ * 
+ * @param {String} symbol 
+ * @param {Array} orders 
+ * @returns Array of submitted orders
+ */
+BIGONE.contract.orders.createBatchOrder = async (symbol, orders) => {
+  try{
+    const url = `${API.CONTRACT_URL}/orders/batch`
+    const token = await BIGONE.getToken()
+    
+    let preOrders = {
+      "symbol": symbol,
+      "orders": orders
+    }
+  
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(preOrders)
+    }).then(res => res.json());
+    }
+    catch(err){
+      console.log(err);
+    }
+}
+
+/**
+ * 
+ * @param {String} symbol Contract types, includes BTCUSD, BTCUSDT, ETHUSDT, EOSUSDT
+ * @param {Array} ids List of order ids 
+ * @returns No response content
+ */
+BIGONE.contract.orders.cancelBatchOrder = async (symbol, ids) => {
+  try{
+    const url = `${API.CONTRACT_URL}/orders/batch`
+    const token = await BIGONE.getToken()
+    
+    let preOrders = {
+      "symbol": symbol,
+      "ids": ids
+    }
+  
+    return fetch(url, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(preOrders)
+    }).then(res => res.json());
+    }
+    catch(err){
+      console.log(err);
+    }
+}
+
+
+
+// ░█▀▀▀ █─█ █▀▀█ █▀▀█ █▀▀█ ▀▀█▀▀ █▀▀
+// ░█▀▀▀ ▄▀▄ █──█ █──█ █▄▄▀ ──█── ▀▀█
+// ░█▄▄▄ ▀─▀ █▀▀▀ ▀▀▀▀ ▀─▀▀ ──▀── ▀▀▀
 module.exports = BIGONE
  

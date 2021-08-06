@@ -11,15 +11,16 @@ API.init({
 const Constants = require("./constants");
 const BOT = {
   isRunning: false,
+  startTime: null,
   lastPosition: null,
   position: null,
   cash: null,
   currentPhase: Constants.phases.ACCUMULATE,
   lastPhase: Constants.phases.ACCUMULATE,
-  settings = null,
-  tpOrders = [],
-  accumulationOrders = [],
-  loadingOrders = []
+  settings: null,
+  tpOrders: [],
+  accumulationOrders: [],
+  loadingOrders: [],
 };
 BOT.settings = require("./bot_config.js");
 
@@ -62,35 +63,72 @@ function getCashandPositionDetail() {
   }
 }
 
+async function createBatchOrder(symbol, orders) {
+  try {
+    // return API.contract.orders.createBatchOrder(symbol, orders).then((respOrders) => respOrders);
+    const respOrders = [];
+
+    orders.forEach(async (order) => {
+      
+       const o = await API.contract.orders.createOrder(
+        (size = order.size),
+        (symbol = order.symbol),
+        (type = order.type),
+        (side = order.side),
+        (price = order.price),
+        (reduceOnly = order.reduceOnly),
+        (conditionalObj = order.conditional)
+      );
+      console.log(`Pushing order:\n${JSON.stringify(o,null,2)}`);
+      respOrders.push(o);
+    });
+    return respOrders;
+  } catch (err) {
+    console.log(err);
+  }
+}
+
+function cancelBatchOrder(symbol, ids) {
+  try {
+    return API.contract.orders.cancelBatchOrder(symbol, ids).then((e) => e);
+  } catch (err) {
+    console.log(err);
+  }
+}
+
+let isPolling = false;
 function pollEvents() {
-  getCashandPositionDetail()
-    .then((e) => {
-      BOT.cash = e.cash;
-      BOT.position = e.position;
-    })
-    .then(() => {
-      // PHASE_CHANGED
+  if (!isPolling) {
+    getCashandPositionDetail()
+      .then((e) => {
+        BOT.cash = e.cash;
+        BOT.position = e.position;
+      })
+      .then(() => {
+        // PHASE_CHANGED
+        pollPhaseChanged();
+
+        //ACCUMULATE_ORDER_TRIGGERED
+
+        //LOADING_ORDER_TRIGGERED
+
+        // TP_ORDER_TRIGGERED
+      });
+
+    function pollPhaseChanged() {
       determineCurrentPhase();
       if (BOT.lastPhase != BOT.currentPhase) {
-        eventEmitter.emit(Constants.eventNames.PHASE_CHANGED, BOT.lastPhase, BOT.currentPhase);
+        eventEmitter.emit(Constants.eventNames.PHASE_CHANGED);
       }
-
-      //ACCUMULATE_ORDER_TRIGGERED
-
-      //LOADING_ORDER_TRIGGERED
-
-      // TP_ORDER_TRIGGERED
-    });
-
-    function determineCurrentPhase() {
+      function determineCurrentPhase() {
         if (BOT.position.markPrice > BOT.settings.loading_threshhold(BOT.position.entryPrice)) {
-            BOT.currentPhase = Constants.phases.LOADING;
+          BOT.currentPhase = Constants.phases.LOADING;
+        } else {
+          BOT.currentPhase = Constants.phases.ACCUMULATE;
         }
-        else {
-            BOT.currentPhase = Constants.phases.ACCUMULATE;
-        }
-        
+      }
     }
+  }
 }
 
 // ░█▀▀▀ ░█──░█ ░█▀▀▀ ░█▄─░█ ▀▀█▀▀ ░█▀▀▀█
@@ -98,15 +136,15 @@ function pollEvents() {
 // ░█▄▄▄ ──▀▄▀─ ░█▄▄▄ ░█──▀█ ─░█── ░█▄▄▄█
 
 var events = require("events");
+const HELPER = require("./helper.js");
 // const { isRegExp } = require("util");
 var eventEmitter = new events.EventEmitter();
 
 //Create event handlers:
-var PHASE_CHANGED_HANDLER = function (last, current) {
+var PHASE_CHANGED_HANDLER = function () {
   if (BOT.currentPhase === Constants.phases.ACCUMULATE) {
     //Cancel Open Loading Orders and Create Accumulation orders
     //TODO
-
   } else if (BOT.currentPhase === Constants.phases.LOADING) {
     //Cancel Accumulation orders and create Loading orders
     //TODO
@@ -152,7 +190,6 @@ eventEmitter.on(Constants.eventNames.TP_ORDER_TRIGGERED, TP_ORDER_TRIGGERED_HAND
 //Fire an event example:
 // eventEmitter.emit(Constants.eventNames.PHASE_CHANGED, phases.INVACTIVE, phases.ACCUMULATE);
 
-
 // ░█─░█ █▀▀ █▀▀ █▀▀█ 　 ─█▀▀█ █▀▀ ▀▀█▀▀ ─▀─ █▀▀█ █▀▀▄ █▀▀
 // ░█─░█ ▀▀█ █▀▀ █▄▄▀ 　 ░█▄▄█ █── ──█── ▀█▀ █──█ █──█ ▀▀█
 // ─▀▄▄▀ ▀▀▀ ▀▀▀ ▀─▀▀ 　 ░█─░█ ▀▀▀ ──▀── ▀▀▀ ▀▀▀▀ ▀──▀ ▀▀▀
@@ -171,6 +208,7 @@ BOT.StartBot = () => {
       .then((e) => {
         BOT.cash = e.cash;
         BOT.position = e.position;
+        BOT.startTime = new Date().toISOString();
       })
       .then(() => {
         if (BOT.position.size != 0) {
@@ -182,10 +220,11 @@ BOT.StartBot = () => {
           console.log("Opening new position.");
           BOT.isRunning = true;
           //Create Accumulation Orders
-            //TODO
+          const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = BOT.position.markPrice - 10000));
+          const responseOrders = createBatchOrder("BTCUSD", accuOrders);
 
           //Begin polling for events
-          setInterval(pollEvents);
+          setInterval(pollEvents, 700);
         }
         // console.log(BOT);
       });
@@ -195,16 +234,59 @@ BOT.StartBot = () => {
 /**
  * Stop Polling for events and cancel all open orders
  */
-BOT.CancelBot = () => {};
+BOT.CancelBot = () => {
+  const ids = [];
+  //Need to add all orderes, not just ACCUMULATION
+  //TODO
+  for (let index = 0; index < BOT.accumulationOrders.length; index++) {
+    const element = BOT.accumulationOrders[index].id;
+    ids.push(element);
+  }
+  console.log("Attempting To cancel the following orders:");
+  console.log(ids);
+  cancelBatchOrder("BTCUSD", ids);
+};
 
 /**
  * Calls CancelBot in addition to closing out position at Market Price.
  */
-BOT.KillBot = () => {};
+BOT.KillBot = () => {
+  //Cancel Pending
+  BOT.CancelBot();
+
+  //Close position
+  getCashandPositionDetail().then((e) => {
+    BOT.cash = e.cash;
+    BOT.position = e.position;
+    API.contract.orders.createOrder(
+      (size = BOT.position.size),
+      (symbol = "BTCUSD"),
+      (type = "MARKET"),
+      (side = "SELL"),
+      (price = BOT.position.markPrice),
+      (reduceOnly = true),
+      (conditionalObj = null)
+    );
+  });
+};
 
 BOT.TestFunc = () => {
-  console.log(BOT);
-//   BOT.StartBot();
+  console.log(`\nTEST\n`);
+  getCashandPositionDetail().then((e) => {
+    BOT.cash = e.cash;
+    BOT.position = e.position;
+    BOT.startTime = new Date().toISOString();
+    // console.log(BOT);
+    const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = BOT.position.markPrice - 10000));
+    console.log(accuOrders);
+    createBatchOrder("BTCUSD", accuOrders).then((responseOrders) => {
+      BOT.accumulationOrders = responseOrders;
+      console.log(BOT);
+      setTimeout(() => {
+        BOT.KillBot();
+      }, 6000);
+    });
+  });
 };
 
 // ░█▀▀▀ █─█ █▀▀█ █▀▀█ █▀▀█ ▀▀█▀▀ █▀▀
