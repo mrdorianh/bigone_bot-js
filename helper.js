@@ -96,14 +96,15 @@ HELPER.BatchTargetProfitOrderFactory = (currentPrice, minProfitPrice, profitVolu
 HELPER.BatchAccumulateOrderFactory = (
   entryPrice,
   deviationStep = 1.61803398875,
-  maxLimit = 5000,
+  maxLimit = 3000,
   symbol = "BTCUSD",
   type = "LIMIT",
   side = "BUY"
 ) => {
   //Generate order sizes based on maxLimit size (1 = 1USD)
 
-  const firstOrderSize = 1;
+  //TODO make first order size a parameter of this function
+  const firstOrderSize = 4;
   const orderSizes = [];
   const orderPrices = [];
   orderSizes.push(firstOrderSize);
@@ -125,11 +126,13 @@ HELPER.BatchAccumulateOrderFactory = (
   //Generate price list based on order size count with depth at 60% away from entry price.
   const distance = entryPrice * 0.4
   let diff = entryPrice - distance;
-  let lastPrice = parseFloat(entryPrice - diff).toFixed(1);
+  // let lastPrice = parseFloat((entryPrice - diff).toFixed(1));
+  let lastPrice = Math.floor(entryPrice - diff);
   orderPrices.unshift(lastPrice);
   for (let index = 0; index < orderSizes.length - 1; index++) {
     diff = diff / deviationStep;
-    const nextPrice = parseFloat((entryPrice - diff).toFixed(1));
+    // const nextPrice = parseFloat((entryPrice - diff).toFixed(1));
+    const nextPrice = Math.floor(entryPrice - diff);
     orderPrices.unshift(nextPrice);
   }
 
@@ -141,7 +144,7 @@ HELPER.BatchAccumulateOrderFactory = (
 
     //Buy in immediately on first order so remove its conditional.
     let conditional = null;
-    //Apparently Conditionals don't work on batch orders.... keep it null;
+    //Apparently Conditionals don't work on batch orders.... keep it null if returning nothing;
 
     if (index > 0) {
       conditional = HELPER.conditionalObjectFactory(orderPrice);

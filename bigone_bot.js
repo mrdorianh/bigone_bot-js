@@ -65,30 +65,31 @@ function getCashandPositionDetail() {
 
 async function createBatchOrder(symbol, orders) {
   try {
-    // return API.contract.orders.createBatchOrder(symbol, orders).then((respOrders) => respOrders);
-    const respOrders = [];
+    return API.contract.orders.createBatchOrder(symbol, orders).then((respOrders) => respOrders);
+    // const respOrders = [];
 
-    orders.forEach(async (order) => {
-      
-       const o = await API.contract.orders.createOrder(
-        (size = order.size),
-        (symbol = order.symbol),
-        (type = order.type),
-        (side = order.side),
-        (price = order.price),
-        (reduceOnly = order.reduceOnly),
-        (conditionalObj = order.conditional)
-      );
-      console.log(`Pushing order:\n${JSON.stringify(o,null,2)}`);
-      respOrders.push(o);
-    });
-    return respOrders;
+    // orders.forEach(async (order) => {
+
+    //    const o = await API.contract.orders.createOrder(
+    //     (size = order.size),
+    //     (symbol = order.symbol),
+    //     (type = order.type),
+    //     (side = order.side),
+    //     (price = order.price),
+    //     (reduceOnly = order.reduceOnly),
+    //     (conditionalObj = order.conditional)
+    //   );
+    //   console.log(`Pushing order:\n${JSON.stringify(o,null,2)}`);
+    //   respOrders.push(o);
+    // });
+
+    // return respOrders;
   } catch (err) {
     console.log(err);
   }
 }
 
-function cancelBatchOrder(symbol, ids) {
+async function cancelBatchOrder(symbol, ids) {
   try {
     return API.contract.orders.cancelBatchOrder(symbol, ids).then((e) => e);
   } catch (err) {
@@ -137,6 +138,7 @@ function pollEvents() {
 
 var events = require("events");
 const HELPER = require("./helper.js");
+const { rejects } = require("assert");
 // const { isRegExp } = require("util");
 var eventEmitter = new events.EventEmitter();
 
@@ -223,6 +225,7 @@ BOT.StartBot = () => {
           const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = BOT.position.markPrice - 10000));
           const responseOrders = createBatchOrder("BTCUSD", accuOrders);
 
+          //TODO Return interval id as promise
           //Begin polling for events
           setInterval(pollEvents, 700);
         }
@@ -234,7 +237,7 @@ BOT.StartBot = () => {
 /**
  * Stop Polling for events and cancel all open orders
  */
-BOT.CancelBot = () => {
+BOT.CancelBot = async () => {
   const ids = [];
   //Need to add all orderes, not just ACCUMULATION
   //TODO
@@ -242,51 +245,88 @@ BOT.CancelBot = () => {
     const element = BOT.accumulationOrders[index].id;
     ids.push(element);
   }
-  console.log("Attempting To cancel the following orders:");
-  console.log(ids);
-  cancelBatchOrder("BTCUSD", ids);
+  if (ids.length > 0) {
+    console.log("Attempting To cancel the following orders:");
+    console.log(ids);
+    return cancelBatchOrder("BTCUSD", ids)
+      .then((resp) => resp)
+      .catch((err) => console.log(err));
+  } else {
+    return Promise.reject("No orders to cancel!");
+  }
 };
 
 /**
  * Calls CancelBot in addition to closing out position at Market Price.
+ * returns Closing Order;
  */
-BOT.KillBot = () => {
+BOT.KillBot = async () => {
   //Cancel Pending
-  BOT.CancelBot();
-
-  //Close position
-  getCashandPositionDetail().then((e) => {
-    BOT.cash = e.cash;
-    BOT.position = e.position;
-    API.contract.orders.createOrder(
-      (size = BOT.position.size),
-      (symbol = "BTCUSD"),
-      (type = "MARKET"),
-      (side = "SELL"),
-      (price = BOT.position.markPrice),
-      (reduceOnly = true),
-      (conditionalObj = null)
-    );
-  });
+  return BOT.CancelBot()
+    .then((resp) => {
+      return getCashandPositionDetail();
+    })
+    .then((e) => {
+      BOT.cash = e.cash;
+      BOT.position = e.position;
+      return e;
+    })
+    .then((e) => {
+      //Close position
+      return API.contract.orders.createOrder(
+        (size = e.position.size),
+        (symbol = "BTCUSD"),
+        (type = "MARKET"),
+        (side = "SELL"),
+        (price = e.position.markPrice),
+        (reduceOnly = true),
+        (conditionalObj = null)
+      );
+    })
+    .catch((err) => console.log(err));
 };
 
 BOT.TestFunc = () => {
-  console.log(`\nTEST\n`);
-  getCashandPositionDetail().then((e) => {
-    BOT.cash = e.cash;
-    BOT.position = e.position;
-    BOT.startTime = new Date().toISOString();
-    // console.log(BOT);
-    const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = BOT.position.markPrice - 10000));
-    console.log(accuOrders);
-    createBatchOrder("BTCUSD", accuOrders).then((responseOrders) => {
-      BOT.accumulationOrders = responseOrders;
-      console.log(BOT);
-      setTimeout(() => {
-        BOT.KillBot();
-      }, 6000);
-    });
-  });
+  // ----------------
+  // console.log(`\nTEST\n`);
+  // getCashandPositionDetail()
+  //   .then((e) => {
+  //     BOT.cash = e.cash;
+  //     BOT.position = e.position;
+  //     BOT.startTime = new Date().toISOString();
+  //     // console.log(BOT);
+  //     const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = e.position.markPrice - 10000));
+  //     console.log(accuOrders);
+  //     return accuOrders;
+  //   })
+  //   .then((accuOrders) => {
+  //     return createBatchOrder("BTCUSD", accuOrders);
+  //   })
+  //   .then((responseOrders) => {
+  //     BOT.accumulationOrders = responseOrders;
+  //     console.log(BOT);
+  //     setTimeout(() => {
+  //       BOT.KillBot();
+  //     }, 6000);
+  //   })
+  //   .catch((err) => {
+  //     console.log(err);
+  //   });
+  // ----------------
+  API.contract.orders
+    .getOrderList()
+    .then((list) => {
+      var ids = list.map((order) => order.id);
+      console.log(ids);
+      return ids;
+    })
+    .then((ids) => {
+      return cancelBatchOrder("BTCUSD", ids);
+    })
+    .then((resp) => resp)
+    .catch((err) => console.log(err));
+
+    
 };
 
 // ░█▀▀▀ █─█ █▀▀█ █▀▀█ █▀▀█ ▀▀█▀▀ █▀▀
