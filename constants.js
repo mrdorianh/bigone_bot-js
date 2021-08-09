@@ -10,4 +10,9 @@ Constants.phases = {
     LOADING: 'LOADING'
 }
 
+Constants.symbols = {
+  BTCUSD: 'BTCUSD',
+  ETHUSD: 'ETHUSD'
+};
+
 module.exports = Constants;

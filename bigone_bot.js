@@ -67,39 +67,47 @@ async function createBatchOrder(symbol, orders) {
   try {
     return API.contract.orders.createBatchOrder(symbol, orders).then((respOrders) => respOrders);
     // const respOrders = [];
-
+    
     // orders.forEach(async (order) => {
+      
+      //    const o = await API.contract.orders.createOrder(
+        //     (size = order.size),
+        //     (symbol = order.symbol),
+        //     (type = order.type),
+        //     (side = order.side),
+        //     (price = order.price),
+        //     (reduceOnly = order.reduceOnly),
+        //     (conditionalObj = order.conditional)
+        //   );
+        //   console.log(`Pushing order:\n${JSON.stringify(o,null,2)}`);
+        //   respOrders.push(o);
+        // });
+        
+        // return respOrders;
+      } catch (err) {
+        console.log(err);
+      }
+    }
+    
+    async function cancelBatchOrder(symbol, ids) {
+      try {
+        return API.contract.orders.cancelBatchOrder(symbol, ids).then((e) => e);
+      } catch (err) {
+        console.log(err);
+      }
+    }
+    
+    async function cancelActiveOrders() {
+      return API.contract.orders.cancelActiveOrders(Constants.symbols.BTCUSD).then((resp) => {
+        console.log('All Orders should be cancelled');
+      });
+    }
 
-    //    const o = await API.contract.orders.createOrder(
-    //     (size = order.size),
-    //     (symbol = order.symbol),
-    //     (type = order.type),
-    //     (side = order.side),
-    //     (price = order.price),
-    //     (reduceOnly = order.reduceOnly),
-    //     (conditionalObj = order.conditional)
-    //   );
-    //   console.log(`Pushing order:\n${JSON.stringify(o,null,2)}`);
-    //   respOrders.push(o);
-    // });
-
-    // return respOrders;
-  } catch (err) {
-    console.log(err);
-  }
-}
-
-async function cancelBatchOrder(symbol, ids) {
-  try {
-    return API.contract.orders.cancelBatchOrder(symbol, ids).then((e) => e);
-  } catch (err) {
-    console.log(err);
-  }
-}
 
 let isPolling = false;
 function pollEvents() {
   if (!isPolling) {
+    isPolling = true;
     getCashandPositionDetail()
       .then((e) => {
         BOT.cash = e.cash;
@@ -108,14 +116,23 @@ function pollEvents() {
       .then(() => {
         // PHASE_CHANGED
         pollPhaseChanged();
+        //Get all the orders the updated accumulation orders
 
         //ACCUMULATE_ORDER_TRIGGERED
+        // pollAccumulateOrderTriggered();
+        //
+        if (BOT.currentPhase === Constants.phases.ACCUMULATE) {
+          //Get the updated accumulation orders
+          //Compare to see if any orders
+        }
 
         //LOADING_ORDER_TRIGGERED
-
+        if (BOT.currentPhase === Constants.phases.LOADING) {
+        }
         // TP_ORDER_TRIGGERED
       });
 
+    isPolling = false;
     function pollPhaseChanged() {
       determineCurrentPhase();
       if (BOT.lastPhase != BOT.currentPhase) {
@@ -288,49 +305,73 @@ BOT.KillBot = async () => {
 
 BOT.TestFunc = () => {
   // ----------------
-  // console.log(`\nTEST\n`);
-  // getCashandPositionDetail()
-  //   .then((e) => {
-  //     BOT.cash = e.cash;
-  //     BOT.position = e.position;
-  //     BOT.startTime = new Date().toISOString();
-  //     // console.log(BOT);
-  //     const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = e.position.markPrice - 10000));
-  //     console.log(accuOrders);
-  //     return accuOrders;
-  //   })
-  //   .then((accuOrders) => {
-  //     return createBatchOrder("BTCUSD", accuOrders);
-  //   })
-  //   .then((responseOrders) => {
-  //     BOT.accumulationOrders = responseOrders;
-  //     console.log(BOT);
-  //     setTimeout(() => {
-  //       BOT.KillBot();
-  //     }, 6000);
-  //   })
-  //   .catch((err) => {
-  //     console.log(err);
-  //   });
+  console.log(`\nTEST\n`);
+  TEST_createAndCancelOrderBatch();
   // ----------------
-  API.contract.orders
-    .getOrderList()
-    .then((list) => {
-      var ids = list.map((order) => order.id);
-      console.log(ids);
-      return ids;
-    })
-    .then((ids) => {
-      return cancelBatchOrder("BTCUSD", ids);
-    })
-    .then((resp) => resp)
-    .catch((err) => console.log(err));
-
+    // API.contract.orders.getActiveOrdersList(Constants.symbols.BTCUSD).then((resp) => {
+    //   console.log(resp);
+    // }).catch(err => console.error(err));
     
+  // ----------------------------
+  // cancelActiveOrders();
+  // ----------------------------
+
+  // pollEvents()
 };
+
+function TEST_createAndCancelOrderBatch() {
+  getCashandPositionDetail()
+    .then((e) => {
+      BOT.cash = e.cash;
+      BOT.position = e.position;
+      BOT.startTime = new Date().toISOString();
+      // console.log(BOT);
+      const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = e.position.markPrice - 10000));
+      console.log(accuOrders);
+      return accuOrders;
+    })
+    .then((accuOrders) => {
+      return createBatchOrder("BTCUSD", accuOrders);
+    })
+    .then((responseOrders) => {
+      BOT.accumulationOrders = responseOrders;
+      return BOT;
+      //
+    })
+    .then((bot) => {
+      console.log(bot);
+
+      console.log(`\n TESTING FETCH ORDERS AFTER START TIME: ${BOT.startTime}`);
+      //THIS SHOULD NOT BE NESTED, TEST ONLY
+      return API.contract.orders
+        .getOrderList(BOT.startTime)
+        .then((list) => {
+          var ids = list.map((order) => order.id);
+          //Here we need to filter against the relative type of order (ACC, LOAD, TP)
+          console.log(ids);
+          return ids;
+        })
+        .then((ids) => {
+          return cancelBatchOrder("BTCUSD", ids);
+        })
+        .then((resp) => {
+          console.log("Looks like orders were canceled!");
+          //Response should be empty if successfull
+          console.log(resp);
+        })
+        .catch((err) => console.log(err));
+      //
+    })
+    .catch((err) => {
+      console.log(err);
+    });
+}
+
 
 // ░█▀▀▀ █─█ █▀▀█ █▀▀█ █▀▀█ ▀▀█▀▀ █▀▀
 // ░█▀▀▀ ▄▀▄ █──█ █──█ █▄▄▀ ──█── ▀▀█
 // ░█▄▄▄ ▀─▀ █▀▀▀ ▀▀▀▀ ▀─▀▀ ──▀── ▀▀▀
 
 module.exports = BOT;
+
+

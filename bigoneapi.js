@@ -4,6 +4,7 @@
 const fetch = require("node-fetch");
 const jwt = require("jsonwebtoken");
 const HELPER = require("./helper");
+const BOT = require("./bigone_bot");
 const API = {
   SPOT_URL: "https://big.one/api/v3",
   CONTRACT_URL: "https://big.one/api/contract/v2",
@@ -306,9 +307,9 @@ BIGONE.contract.orders.cancelBatchOrder = async (symbol, ids) => {
   }
 };
 
-BIGONE.contract.orders.getOrderList = async (status = "NEW") => {
+BIGONE.contract.orders.getOrderList = async (start_time) => {
   try {
-    const url = `${API.CONTRACT_URL}/orders?status=${status}`;
+    const url = `${API.CONTRACT_URL}/orders?start-time=${start_time}`;
     const token = await BIGONE.getToken();
 
     return fetch(url, {
@@ -321,6 +322,34 @@ BIGONE.contract.orders.getOrderList = async (status = "NEW") => {
   } catch (err) {
     console.log(err);
   }
+};
+
+BIGONE.contract.orders.getActiveOrdersList = async (symbol) => {
+  try {
+    const url = `${API.CONTRACT_URL}/orders/opening?symbol=${symbol}`;
+    const token = await BIGONE.getToken();
+
+    return fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    }).then((res) => res.json());
+  } catch (err) {
+    console.log(err);
+  }
+};
+
+BIGONE.contract.orders.cancelActiveOrders = async (symbol) => {
+  return BIGONE.contract.orders
+    .getActiveOrdersList(symbol)
+    .then((list) => {
+      return list.map((order) => order.id);
+    })
+    .then((ids) => {
+      return BIGONE.contract.orders.cancelBatchOrder(symbol, ids);
+    });
 };
 
 // ░█▀▀▀ █─█ █▀▀█ █▀▀█ █▀▀█ ▀▀█▀▀ █▀▀
