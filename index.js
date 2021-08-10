@@ -1,5 +1,5 @@
 const BOT = require('./bigone_bot.js');
-
+const HELPER = require('./helper.js');
 
 
 
@@ -8,4 +8,5 @@ const BOT = require('./bigone_bot.js');
 // BOT.StartBot();
 // BOT.CancelBot();
 // BOT.KillBot();
-BOT.TestFunc();
+// BOT.TestFunc();
+console.log(HELPER.BatchLoadingOrderFactory(44000, 1600));
