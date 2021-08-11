@@ -177,9 +177,9 @@ HELPER.BatchAccumulateOrderFactory = (
 HELPER.BatchLoadingOrderFactory = function (
   entryPrice,
   currentHoldingAmount = 0,
-  depth = 10,
+  depth = 20,
   deviationStep = 1.61803398875,
-  maxLimit = 30000,
+  maxLimit = 200000,
   symbol = Constants.symbols.BTCUSD,
   type = Constants.types.MARKET,
   side = Constants.sides.BUY
@@ -187,67 +187,99 @@ HELPER.BatchLoadingOrderFactory = function (
   if (currentHoldingAmount === 0) {
     throw "CurrentHoldings input is 0. No orders created.";
   }
+
+
+  
+// █▀ █ ▀█ █▀▀
+// ▄█ █ █▄ ██▄
+
   //Generate order sizes based on maxLimit size (1 = 1USD)
 
-  //TODO make first order size a parameter of this function
   const orderSizes = [];
   const orderPrices = [];
-  const firstOrderSize = currentHoldingAmount * Math.sin(1 / depth);
+  const totalOrderSizes = [];
+
+  const firstOrderSize = (currentHoldingAmount / deviationStep) * Math.sin(1 / depth);
+  // const firstOrderSize = currentHoldingAmount;
   orderSizes.push(firstOrderSize);
 
   //USE depth for array length
 
   let totalOrderSize = firstOrderSize + currentHoldingAmount;
+  totalOrderSizes.push(totalOrderSize);
+
   for (let index = 1; index <= depth; index++) {
-    if (totalOrderSize <= maxLimit) {
-      // let nextOrderSize = Math.ceil(orderSizes[orderSizes.length - 1] * deviationStep);
-      let nextOrderSize = totalOrderSize * Math.sin(index / depth);
+    if (totalOrderSize < maxLimit) {
+      let nextOrderSize = (totalOrderSize / deviationStep) * Math.sin(index / depth);
+      
       if (totalOrderSize + nextOrderSize <= maxLimit) {
         totalOrderSize += nextOrderSize;
+        totalOrderSizes.push(totalOrderSize);
       } else {
         //Remove excess to stay within limit.
         const excess = totalOrderSize + nextOrderSize - maxLimit;
         nextOrderSize -= excess;
         if (nextOrderSize === 0) {
+          console.log(`Met max loading amount of ${maxLimit}`);
           break;
         } else {
           totalOrderSize += nextOrderSize;
+          totalOrderSizes.push(totalOrderSize);
         }
       }
       orderSizes.push(nextOrderSize);
     } else {
-      console.log(`Met max loading amount of ${maxLimit}`);
+      console.log(`\nMet max loading amount of ${maxLimit} on iteration ${index} of ${depth}.\n`);
       break;
     }
   }
 
+  
+// █▀█ █▀█ █ █▀▀ █▀▀
+// █▀▀ █▀▄ █ █▄▄ ██▄
+
   //Generate price list with depth at 20% away from entry price.
-  const lastPrice = entryPrice * 1.2; //40000 -> 48000
+  const lastPrice = Math.floor(entryPrice * 1.1); //40000 -> 48000
   orderPrices.unshift(lastPrice);
+  let finalStep = 1.1;
+  let step = deviationStep;
+  const stepIncrement = (deviationStep - finalStep) / orderSizes.length; 
 
   // let lastPrice = parseFloat((entryPrice - diff).toFixed(1));
   // let lastPrice = Math.floor(entryPrice - diff);
   let diff = lastPrice - entryPrice; //8000
   for (let index = 0; index < orderSizes.length - 1; index++) {
-    diff = diff / deviationStep; //4944
-    // const nextPrice = parseFloat((entryPrice - diff).toFixed(1));
+    // diff = diff / deviationStep; //4944
+    diff = diff / step; //4944
     const nextPrice = Math.floor(entryPrice + diff); // 40000 + 4944 = 43055;
+
+    step -= stepIncrement;
     orderPrices.unshift(nextPrice);
   }
+
+  console.log(`Intitial Holdings(USD/BTC): ${currentHoldingAmount}/${currentHoldingAmount / entryPrice}`);
+
+
+  
+// █▀▀ ▄▀█ █▀▀ ▀█▀ █▀█ █▀█ █▄█
+// █▀░ █▀█ █▄▄ ░█░ █▄█ █▀▄ ░█░
 
   //Now create orders with the generated prices and sizes
   const loadingOrders = [];
   for (let index = 0; index < orderSizes.length; index++) {
-    const orderPrice = orderPrices[index];
-    const orderSize = orderSizes[index];
-    console.log(`${index}\nSize(USD): ${orderSize}\nSize(BTC): ${orderSize / orderPrice}\nPrice: ${orderPrice}\n`);
+    const orderPrice = Math.floor(orderPrices[index]);
+    const orderSize = Math.floor(orderSizes[index]);
+    const total = Math.floor(totalOrderSizes[index]);
+    console.log(
+      `${index}\nSize(USD): ${orderSize}\nSize(BTC): ${orderSize / orderPrice}\nPrice: ${orderPrice}\nTotal(USD/BTC): ${total}/${
+        total / orderPrice
+      }\n`
+    );
     //Buy in immediately on first order so remove its conditional.
-    let conditional = null;
+    const conditional = HELPER.conditionalObjectFactory(orderPrice);
     //Apparently Conditionals don't work on batch orders.... keep it null if returning nothing;
 
-    if (index > 0) {
-      conditional = HELPER.conditionalObjectFactory(orderPrice);
-    }
+    
 
     const order = HELPER.orderFactory(
       (size = orderSize),
