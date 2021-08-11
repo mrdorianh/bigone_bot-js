@@ -12,6 +12,7 @@ const Constants = require("./constants");
 const BOT = {
   isRunning: false,
   isPolling: false,
+  isHandlingEvent: false,
   intervalID: null,
   startTime: null,
   //Pull all symbol calls from here TODO
@@ -112,8 +113,10 @@ async function cancelActiveOrders() {
 }
 
 function pollEvents() {
-  if (!BOT.isPolling) {
-    isPolling = true;
+  if (!BOT.isPolling && !BOT.isHandlingEvent) {
+    console.log("Begin Poll");
+    BOT.isPolling = true;
+    let activeOrders = [];
     getCashandPositionDetail()
       .then((e) => {
         BOT.cash = e.cash;
@@ -121,42 +124,76 @@ function pollEvents() {
       })
       .then(() => {
         // PHASE_CHANGED
-        pollPhaseChanged();
-
-        //Get all the orders the updated accumulation orders
-        const activeList = getActiveOrdersList(BOT.symbol);
-        return activeList;
+        return pollPhaseChanged();
+        // return true;
       })
-      .then((activeOrders) => {
-        //ACCUMULATE_ORDER_TRIGGERED
-        pollAccumulateOrderTriggered(activeOrders);
+      .then((didPhaseChange) => {
+        return new Promise((resolve, reject) => {
+          if (didPhaseChange) {
+            reject("Phase Changed. Skipping poll on triggers...");
+          } else {
+            //Get all the orders the updated accumulation orders
+            const activeList = getActiveOrdersList(BOT.symbol);
+            activeOrders = activeList;
+            resolve(null);
+          }
+        });
+      })
+      .then(() => {
+        // //ACCUMULATE_ORDER_TRIGGERED
+        return pollAccumulateOrderTriggered(activeOrders);
 
-        //LOADING_ORDER_TRIGGERED
-        pollLoadingOrderTriggered(activeOrders);
+        // //LOADING_ORDER_TRIGGERED
+        // pollLoadingOrderTriggered(activeOrders);
 
-        // TP_ORDER_TRIGGERED
-        pollTpOrderTriggered(activeOrders);
+        // // TP_ORDER_TRIGGERED
+        // pollTpOrderTriggered(activeOrders);
+      })
+      .then((didAccumulateOrderTrigger) => {
+        return new Promise((resolve, reject) => {
+          if (didAccumulateOrderTrigger) {
+            reject("Accumulation Order Triggered. Skipping poll on triggers...");
+          } else {
+            //Get all the orders the updated accumulation orders
+            const activeList = getActiveOrdersList(BOT.symbol);
+            activeOrders = activeList;
+            resolve(true);
+          }
+        });
       })
       .then(() => {
         BOT.isPolling = false;
+        console.log("End Poll");
+      })
+      .catch((err) => {
+        console.log(err);
+        BOT.isPolling = false;
+        console.log("End Poll");
       });
+  }
+  else{
+    console.log(`\nSkipping Poll:\nBOT.isPolling = ${BOT.isPolling}\nBOT.isHandlingEvent = ${BOT.isHandlingEvent}\n`)
+  }
+}
 
-    function pollPhaseChanged() {
-      determineCurrentPhase();
-      if (BOT.lastPhase != BOT.currentPhase) {
-        eventEmitter.emit(Constants.eventNames.PHASE_CHANGED);
-      }
-      function determineCurrentPhase() {
-        if (BOT.position.markPrice > BOT.settings.loading_threshhold(BOT.position.entryPrice)) {
-          BOT.currentPhase = Constants.phases.LOADING;
-        } else {
-          BOT.currentPhase = Constants.phases.ACCUMULATE;
-        }
-      }
+async function pollPhaseChanged() {
+  function determineCurrentPhase() {
+    if (BOT.position.markPrice > BOT.settings.loading_threshhold(BOT.position.entryPrice)) {
+      BOT.currentPhase = Constants.phases.LOADING;
+    } else {
+      BOT.currentPhase = Constants.phases.ACCUMULATE;
     }
   }
+  determineCurrentPhase();
+  if (BOT.lastPhase != BOT.currentPhase) {
+    eventEmitter.emit(Constants.eventNames.PHASE_CHANGED);
+    return true;
+  } else {
+    return false;
+  }
+}
 
-  function pollTpOrderTriggered(activeOrders) {
+  async function pollTpOrderTriggered(activeOrders) {
     if (BOT.currentPhase === Constants.phases.LOADING) {
       //Get the updated accumulation orders
       const activeIDs = activeOrders.map((activeOrder) => activeOrder.id);
@@ -164,16 +201,20 @@ function pollEvents() {
       BOT.tpOrders.forEach((order, index) => {
         if (activeIDs.includes(order.id)) {
           //UNTRIGGERED
+          return false;
         } else {
           //TRIGGERED
           BOT.tpOrders.splice(index, 1);
           eventEmitter.emit(Constants.eventNames.TP_ORDER_TRIGGERED);
+          return true;
         }
       });
+    } else {
+      return false;
     }
   }
 
-  function pollLoadingOrderTriggered(activeOrders) {
+  async function pollLoadingOrderTriggered(activeOrders) {
     if (BOT.currentPhase === Constants.phases.LOADING) {
       //Get the updated accumulation orders
       const activeIDs = activeOrders.map((activeOrder) => activeOrder.id);
@@ -181,16 +222,20 @@ function pollEvents() {
       BOT.loadingOrders.forEach((order, index) => {
         if (activeIDs.includes(order.id)) {
           //UNTRIGGERED
+          return false;
         } else {
           //TRIGGERED
           BOT.loadingOrders.splice(index, 1);
           eventEmitter.emit(Constants.eventNames.LOADING_ORDER_TRIGGERED);
+          return true;
         }
       });
+    } else {
+      return false;
     }
   }
 
-  function pollAccumulateOrderTriggered(activeOrders) {
+  async function pollAccumulateOrderTriggered(activeOrders) {
     if (BOT.currentPhase === Constants.phases.ACCUMULATE) {
       //Get the updated accumulation orders
       const activeIDs = activeOrders.map((activeOrder) => activeOrder.id);
@@ -198,12 +243,16 @@ function pollEvents() {
       BOT.accumulationOrders.forEach((order, index) => {
         if (activeIDs.includes(order.id)) {
           //UNTRIGGERED
+          return false;
         } else {
           //TRIGGERED
           BOT.accumulationOrders.splice(index, 1);
           eventEmitter.emit(Constants.eventNames.ACCUMULATE_ORDER_TRIGGERED);
+          return true;
         }
       });
+    } else {
+      return false;
     }
   }
 }
@@ -214,20 +263,20 @@ function pollEvents() {
 
 var events = require("events");
 const HELPER = require("./helper.js");
-// const { rejects } = require("assert");
-// const { isRegExp } = require("util");
 var eventEmitter = new events.EventEmitter();
 
 //Create event handlers:
 
 var PHASE_CHANGED_HANDLER = function () {
+  BOT.isHandlingEvent = true;
   if (BOT.currentPhase === Constants.phases.ACCUMULATE) {
-    //Cancel Open Loading Orders
+    //Cancel all Orders
     if (BOT.loadingOrders.length > 0) {
       cancelActiveOrders()
         .then(() => {
+          resetBotOrders();
           // Create Accumulation orders
-          const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = e.position.markPrice));
+          const accuOrders = HELPER.BatchAccumulateOrderFactory(entryPrice = e.position.markPrice);
           console.log(accuOrders);
           return accuOrders;
         })
@@ -236,14 +285,24 @@ var PHASE_CHANGED_HANDLER = function () {
         })
         .then((responseOrders) => {
           BOT.accumulationOrders = responseOrders;
+          BOT.lastPhase = BOT.currentPhase;
+          BOT.lastPosition = BOT.position;
+          BOT.isHandlingEvent = false;
+        })
+        .catch((err) => {
+          console.log(err);
+          BOT.lastPhase = BOT.currentPhase;
+          BOT.lastPosition = BOT.position;
+          BOT.isHandlingEvent = false;
         });
     }
   } else if (BOT.currentPhase === Constants.phases.LOADING) {
-    //Cancel Accumulation orders
+    //Cancel all orders
     cancelActiveOrders()
       .then(() => {
+        resetBotOrders();
         // Create Loading orders
-        const loadOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = e.position.markPrice));
+        const loadOrders = HELPER.BatchLoadingOrderFactory(entryPrice = e.position.markPrice, currentHoldingAmount = BOT.position.size);
         console.log(loadOrders);
         return loadOrders;
       })
@@ -252,38 +311,70 @@ var PHASE_CHANGED_HANDLER = function () {
       })
       .then((responseOrders) => {
         BOT.loadingOrders = responseOrders;
+        BOT.lastPhase = BOT.currentPhase;
+        BOT.lastPosition = BOT.position;
+        BOT.isHandlingEvent = false;
+      })
+      .catch((err) => {
+        console.log(err);
+        BOT.lastPhase = BOT.currentPhase;
+        BOT.lastPosition = BOT.position;
+        BOT.isHandlingEvent = false;
       });
-    //TODO
+  } else {
+    BOT.isHandlingEvent = false;
+    throw "Something is wrong with BOT.currentPhase";
   }
-  BOT.lastPhase = BOT.currentPhase;
-  BOT.lastPosition = BOT.position;
 };
 
 /**
  * Nothing needs to happen
  */
 var ACCUMULATE_ORDER_TRIGGERED_HANDLER = function () {
+  BOT.isHandlingEvent = true;
   //OUTPUT STATUS DURING DEBUG
+
+
+  BOT.isHandlingEvent = false;
 };
 
 /**
  * Delete old TP orders and create new TP orders based on new position size and profit range.
  */
 var LOADING_ORDER_TRIGGERED_HANDLER = function () {
+  BOT.isHandlingEvent = true;
   //DELETE OLD TP ORDERS
   //TODO
   //CREATE NEW TP ORDERS
   //TODO
+
+  BOT.isHandlingEvent = false;
 };
 
 /**
  * Delete old LOADING orders and create new LOADING orders based on new position size and profit range.
  */
 var TP_ORDER_TRIGGERED_HANDLER = function () {
+  BOT.isHandlingEvent = true;
   //DELETE OLD LOADING ORDERS
   //TODO
   //CREATE NEW LOADING ORDERS
+  const loadOrders = HELPER.BatchLoadingOrderFactory(entryPrice = e.position.markPrice, currentHoldingAmount = BOT.position.size);
+        console.log(loadOrders);
+        return loadOrders;
+      })
+      .then((loadOrders) => {
+        return createBatchOrder(BOT.symbol, loadOrders);
+      })
+      .then((responseOrders) => {
+        BOT.loadingOrders = responseOrders;
+        BOT.lastPhase = BOT.currentPhase;
+        BOT.lastPosition = BOT.position;
+        BOT.isHandlingEvent = false;
+      })
   //TODO
+
+  BOT.isHandlingEvent = false;
 };
 
 //Assign the event handlers to each event:
@@ -410,8 +501,14 @@ BOT.TestFunc = () => {
   //   .catch((err) => console.error(err));
   // ----------------------------
 
-  // pollEvents()
+  pollEvents();
 };
+
+function resetBotOrders() {
+  BOT.accumulationOrders = [];
+  BOT.loadingOrders = [];
+  BOT.tpOrders = [];
+}
 
 function TEST_createAndCancelOrderBatch() {
   getCashandPositionDetail()
