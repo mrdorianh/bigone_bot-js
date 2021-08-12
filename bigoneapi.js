@@ -341,6 +341,7 @@ BIGONE.contract.orders.getActiveOrdersList = async (symbol) => {
   }
 };
 
+//Cancels active orders, if any.
 BIGONE.contract.orders.cancelActiveOrders = async (symbol) => {
   return BIGONE.contract.orders
     .getActiveOrdersList(symbol)

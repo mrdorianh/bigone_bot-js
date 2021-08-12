@@ -118,7 +118,7 @@ async function createBatchConditionalOrder(symbol, orders, delay = 20) {
     }
     const recursiveOrder = (index = 0) => {
       return new Promise((resolve, reject) => {
-        console.log(index);
+        // console.log(index);
         if (index < orders.length) {
           createConditionalOrder(orders[index])
             .then((order) => {
@@ -192,90 +192,106 @@ async function cancelActiveOrders() {
 }
 
 function pollEvents() {
-  if (!BOT.isPolling && !BOT.isHandlingEvent) {
-    console.log("Begin Poll");
-    BOT.isPolling = true;
-    let activeOrders = [];
 
-    getCashandPositionDetail()
-      .then((e) => {
-        BOT.cash = e.cash;
-        BOT.position = e.position;
-      })
-      .then(() => {
-        // PHASE_CHANGED
-        return pollPhaseChanged();
-        // return true;
-      })
-      .then((didPhaseChange) => {
-        return new Promise((resolve, reject) => {
-          if (didPhaseChange) {
-            reject("Phase Changed. Skipping poll on triggers while event is being handled...");
-          } else {
-            //Get all the active orders to check against triggers
-            const activeList = getActiveOrdersList(BOT.symbol);
-            activeOrders = activeList;
-            resolve(null);
-          }
-        });
-      })
-      .then(() => {
-        // //ACCUMULATE_ORDER_TRIGGERED
-        return pollAccumulateOrderTriggered(activeOrders);
-      })
-      .then((didAccumulateOrderTrigger) => {
-        return new Promise((resolve, reject) => {
-          if (didAccumulateOrderTrigger) {
-            reject("Accumulation Order Triggered. Skipping poll on triggers while event is being handled...");
-          } else {
-            resolve(null);
-          }
-        });
-      })
-      .then(() => {
-        // //LOADING_ORDER_TRIGGERED
-        return pollLoadingOrderTriggered(activeOrders);
-      })
-      .then((didLoadingOrderTrigger) => {
-        return new Promise((resolve, reject) => {
-          if (didLoadingOrderTrigger) {
-            reject("Loading Order Triggered. Skipping poll on triggers while event is being handled...");
-          } else {
-            resolve(null);
-          }
-        });
-      })
-      .then(() => {
-        // // TP_ORDER_TRIGGERED
-        return pollTpOrderTriggered(activeOrders);
-      })
-      .then((didTpOrderTrigger) => {
-        return new Promise((resolve, reject) => {
-          if (didTpOrderTrigger) {
-            reject("TP Order Triggered. Skipping poll on triggers while event is being handled...");
-          } else {
-            resolve(null);
-          }
-        });
-      })
-      .then(() => {
-        endPoll();
-      })
-      .catch((err) => {
-        console.log(err);
-        endPoll();
-      });
-  } else {
-    console.log(`\nSkipping Poll:\nBOT.isPolling = ${BOT.isPolling}\nBOT.isHandlingEvent = ${BOT.isHandlingEvent}\n`);
+  /**
+   * Calls BOT.KillBot() if losses exceed value of BOT.settings.stopLossUSD.
+   * @returns true if failsafe was triggered, otherwise false.
+   */
+  function failsafe() {
+    if (BOT.position.unrealizedPnl * BOT.position.markPrice < BOT.settings.stopLossUSD) {
+      console.log("Stoploss Triggered!")
+      BOT.KillBot();
+      return true;
+    } else {
+      return false;
+    }
   }
 
-  function endPoll() {
-    BOT.isPolling = false;
-    BOT.lastPosition = BOT.position;
-    console.log("End Poll");
+  if (!failsafe()) {
+    if (!BOT.isPolling && !BOT.isHandlingEvent) {
+      console.log("Begin Poll");
+      BOT.isPolling = true;
+      let activeOrders = [];
+
+      getCashandPositionDetail()
+        .then((e) => {
+          BOT.cash = e.cash;
+          BOT.position = e.position;
+        })
+        .then(() => {
+          // PHASE_CHANGED
+          return pollPhaseChanged();
+          // return true;
+        })
+        .then((didPhaseChange) => {
+          return new Promise((resolve, reject) => {
+            if (didPhaseChange) {
+              reject("Phase Changed. Skipping poll on triggers while event is being handled...");
+            } else {
+              //Get all the active orders to check against triggers
+              const activeList = getActiveOrdersList(BOT.symbol);
+              activeOrders = activeList;
+              resolve(null);
+            }
+          });
+        })
+        .then(() => {
+          // //ACCUMULATE_ORDER_TRIGGERED
+          return pollAccumulateOrderTriggered(activeOrders);
+        })
+        .then((didAccumulateOrderTrigger) => {
+          return new Promise((resolve, reject) => {
+            if (didAccumulateOrderTrigger) {
+              reject("Accumulation Order Triggered. Skipping poll on triggers while event is being handled...");
+            } else {
+              resolve(null);
+            }
+          });
+        })
+        .then(() => {
+          // //LOADING_ORDER_TRIGGERED
+          return pollLoadingOrderTriggered(activeOrders);
+        })
+        .then((didLoadingOrderTrigger) => {
+          return new Promise((resolve, reject) => {
+            if (didLoadingOrderTrigger) {
+              reject("Loading Order Triggered. Skipping poll on triggers while event is being handled...");
+            } else {
+              resolve(null);
+            }
+          });
+        })
+        .then(() => {
+          // // TP_ORDER_TRIGGERED
+          return pollTpOrderTriggered(activeOrders);
+        })
+        .then((didTpOrderTrigger) => {
+          return new Promise((resolve, reject) => {
+            if (didTpOrderTrigger) {
+              reject("TP Order Triggered. Skipping poll on triggers while event is being handled...");
+            } else {
+              resolve(null);
+            }
+          });
+        })
+        .then(() => {
+          endPoll();
+        })
+        .catch((err) => {
+          console.log(err);
+          endPoll();
+        });
+    } else {
+      console.log(`\nSkipping Poll:\nBOT.isPolling = ${BOT.isPolling}\nBOT.isHandlingEvent = ${BOT.isHandlingEvent}\n`);
+    }
   }
 }
 
+function endPoll() {
+  BOT.isPolling = false;
+  BOT.lastPosition = BOT.position;
+  console.log("End Poll");
+}
 async function pollPhaseChanged() {
   function determineCurrentPhase() {
     if (BOT.position.markPrice > BOT.settings.loading_threshhold(BOT.position.entryPrice)) {
@@ -378,7 +394,7 @@ var PHASE_CHANGED_HANDLER = function () {
         resetBotOrders();
         // Create Accumulation orders
         const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = e.position.markPrice));
-        console.log(accuOrders);
+        // console.log(accuOrders);
         return accuOrders;
       })
       .then((accuOrders) => {
@@ -404,7 +420,7 @@ var PHASE_CHANGED_HANDLER = function () {
           (entryPrice = e.position.markPrice),
           (currentHoldingAmount = BOT.position.size)
         );
-        console.log(loadOrders);
+        // console.log(loadOrders);
         return loadOrders;
       })
       .then((loadOrders) => {
