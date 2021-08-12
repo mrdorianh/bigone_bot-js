@@ -94,11 +94,17 @@ async function createBatchOrder(symbol, orders) {
   }
 }
 
-async function createBatchConditionalOrder(symbol, orders) {
+/**
+ *
+ * @param {string} symbol Example: 'BTCUSD'. Preset values can be found in constants.js
+ * @param {Array} orders Array of orders, can contain conditional parameter.
+ * @param {number} delay Value in milliseconds between completion and the following call to create an order
+ * @returns Array of response orders.
+ */
+async function createBatchConditionalOrder(symbol, orders, delay = 20) {
   try {
     // return API.contract.orders.createBatchOrder(symbol, orders).then((respOrders) => respOrders);
     const respOrders = [];
-
     async function createConditionalOrder(order) {
       return API.contract.orders.createOrder(
         (size = order.size),
@@ -118,12 +124,24 @@ async function createBatchConditionalOrder(symbol, orders) {
             .then((order) => {
               respOrders.push(order);
               //Set timeout prevents "Maximum call stack size exceeded" error
-              return setTimeout(() => resolve(recursiveOrder(++index)), 0);
+              return setTimeout(() => resolve(recursiveOrder(++index)), delay);
             })
             .catch((err) => {
+              //Something bad happened. Cancel the orders that did make it out and return the error.
               console.log(err);
-              //Should add some cancellation order request here and other catches.
-              reject(err);
+              //Cancellation order request.
+              const ids = respOrders.map((order) => order.id);
+              if (ids.length > 0) {
+                console.log(`Cancelling already submitted orders:\n${ids}`);
+                return cancelBatchOrder(BOT.symbol, ids)
+                  .then(() => {
+                    console.log("Orders canceled successfully.");
+                    reject(err);
+                  })
+                  .catch((err) => console.log(`${err}\nOrder cancelation failed!`));
+              } else {
+                reject(err);
+              }
             });
         } else {
           return resolve();
@@ -178,6 +196,7 @@ function pollEvents() {
     console.log("Begin Poll");
     BOT.isPolling = true;
     let activeOrders = [];
+
     getCashandPositionDetail()
       .then((e) => {
         BOT.cash = e.cash;
@@ -191,9 +210,9 @@ function pollEvents() {
       .then((didPhaseChange) => {
         return new Promise((resolve, reject) => {
           if (didPhaseChange) {
-            reject("Phase Changed. Skipping poll on triggers...");
+            reject("Phase Changed. Skipping poll on triggers while event is being handled...");
           } else {
-            //Get all the orders the updated accumulation orders
+            //Get all the active orders to check against triggers
             const activeList = getActiveOrdersList(BOT.symbol);
             activeOrders = activeList;
             resolve(null);
@@ -203,22 +222,39 @@ function pollEvents() {
       .then(() => {
         // //ACCUMULATE_ORDER_TRIGGERED
         return pollAccumulateOrderTriggered(activeOrders);
-
-        // //LOADING_ORDER_TRIGGERED
-        // pollLoadingOrderTriggered(activeOrders);
-
-        // // TP_ORDER_TRIGGERED
-        // pollTpOrderTriggered(activeOrders);
       })
       .then((didAccumulateOrderTrigger) => {
         return new Promise((resolve, reject) => {
           if (didAccumulateOrderTrigger) {
-            reject("Accumulation Order Triggered. Skipping poll on triggers...");
+            reject("Accumulation Order Triggered. Skipping poll on triggers while event is being handled...");
           } else {
-            //Get all the orders the updated accumulation orders
-            const activeList = getActiveOrdersList(BOT.symbol);
-            activeOrders = activeList;
-            resolve(true);
+            resolve(null);
+          }
+        });
+      })
+      .then(() => {
+        // //LOADING_ORDER_TRIGGERED
+        return pollLoadingOrderTriggered(activeOrders);
+      })
+      .then((didLoadingOrderTrigger) => {
+        return new Promise((resolve, reject) => {
+          if (didLoadingOrderTrigger) {
+            reject("Loading Order Triggered. Skipping poll on triggers while event is being handled...");
+          } else {
+            resolve(null);
+          }
+        });
+      })
+      .then(() => {
+        // // TP_ORDER_TRIGGERED
+        return pollTpOrderTriggered(activeOrders);
+      })
+      .then((didTpOrderTrigger) => {
+        return new Promise((resolve, reject) => {
+          if (didTpOrderTrigger) {
+            reject("TP Order Triggered. Skipping poll on triggers while event is being handled...");
+          } else {
+            resolve(null);
           }
         });
       })
@@ -268,8 +304,9 @@ async function pollTpOrderTriggered(activeOrders) {
         return false;
       } else {
         //TRIGGERED
+        const isLast = index + 1 === tpOrders.length;
         BOT.tpOrders.splice(index, 1);
-        eventEmitter.emit(Constants.eventNames.TP_ORDER_TRIGGERED);
+        eventEmitter.emit(Constants.eventNames.TP_ORDER_TRIGGERED, isLast);
         return true;
       }
     });
@@ -289,8 +326,9 @@ async function pollLoadingOrderTriggered(activeOrders) {
         return false;
       } else {
         //TRIGGERED
+        const isLast = index + 1 === loadingOrders.length;
         BOT.loadingOrders.splice(index, 1);
-        eventEmitter.emit(Constants.eventNames.LOADING_ORDER_TRIGGERED);
+        eventEmitter.emit(Constants.eventNames.LOADING_ORDER_TRIGGERED, isLast);
         return true;
       }
     });
@@ -310,8 +348,9 @@ async function pollAccumulateOrderTriggered(activeOrders) {
         return false;
       } else {
         //TRIGGERED
+        const isLast = index + 1 === accumulationOrders.length;
         BOT.accumulationOrders.splice(index, 1);
-        eventEmitter.emit(Constants.eventNames.ACCUMULATE_ORDER_TRIGGERED);
+        eventEmitter.emit(Constants.eventNames.ACCUMULATE_ORDER_TRIGGERED, isLast);
         return true;
       }
     });
@@ -334,29 +373,27 @@ var PHASE_CHANGED_HANDLER = function () {
   BOT.isHandlingEvent = true;
   if (BOT.currentPhase === Constants.phases.ACCUMULATE) {
     //Cancel all Orders
-    if (BOT.loadingOrders.length > 0) {
-      cancelActiveOrders()
-        .then(() => {
-          resetBotOrders();
-          // Create Accumulation orders
-          const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = e.position.markPrice));
-          console.log(accuOrders);
-          return accuOrders;
-        })
-        .then((accuOrders) => {
-          return createBatchOrder(BOT.symbol, accuOrders);
-        })
-        .then((responseOrders) => {
-          BOT.accumulationOrders = responseOrders;
-          BOT.lastPhase = BOT.currentPhase;
-          BOT.isHandlingEvent = false;
-        })
-        .catch((err) => {
-          console.log(err);
-          BOT.lastPhase = BOT.currentPhase;
-          BOT.isHandlingEvent = false;
-        });
-    }
+    cancelActiveOrders()
+      .then(() => {
+        resetBotOrders();
+        // Create Accumulation orders
+        const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = e.position.markPrice));
+        console.log(accuOrders);
+        return accuOrders;
+      })
+      .then((accuOrders) => {
+        return createBatchConditionalOrder(BOT.symbol, accuOrders);
+      })
+      .then((responseOrders) => {
+        BOT.accumulationOrders = responseOrders;
+        BOT.lastPhase = BOT.currentPhase;
+        BOT.isHandlingEvent = false;
+      })
+      .catch((err) => {
+        console.log(err);
+        BOT.lastPhase = BOT.currentPhase;
+        BOT.isHandlingEvent = false;
+      });
   } else if (BOT.currentPhase === Constants.phases.LOADING) {
     //Cancel all orders
     cancelActiveOrders()
@@ -371,7 +408,7 @@ var PHASE_CHANGED_HANDLER = function () {
         return loadOrders;
       })
       .then((loadOrders) => {
-        return createBatchOrder(BOT.symbol, loadOrders);
+        return createBatchConditionalOrder(BOT.symbol, loadOrders);
       })
       .then((responseOrders) => {
         BOT.loadingOrders = responseOrders;
@@ -392,10 +429,14 @@ var PHASE_CHANGED_HANDLER = function () {
 /**
  * Nothing needs to happen
  */
-var ACCUMULATE_ORDER_TRIGGERED_HANDLER = function () {
+var ACCUMULATE_ORDER_TRIGGERED_HANDLER = function (isLast) {
   BOT.isHandlingEvent = true;
-  //OUTPUT STATUS DURING DEBUG
   console.log(Constants.eventNames.ACCUMULATE_ORDER_TRIGGERED);
+
+  if (isLast) {
+    console.log("Last accumulation order was triggered.");
+    //TODO
+  }
 
   BOT.isHandlingEvent = false;
 };
@@ -403,7 +444,7 @@ var ACCUMULATE_ORDER_TRIGGERED_HANDLER = function () {
 /**
  * Delete old TP orders and create new TP orders based on new position size and profit range.
  */
-var LOADING_ORDER_TRIGGERED_HANDLER = function () {
+var LOADING_ORDER_TRIGGERED_HANDLER = function (isLast) {
   BOT.isHandlingEvent = true;
   console.log(Constants.eventNames.LOADING_ORDER_TRIGGERED);
 
@@ -412,12 +453,22 @@ var LOADING_ORDER_TRIGGERED_HANDLER = function () {
   cancelBatchOrder(BOT.symbol, ids)
     .then((resp) => {
       console.log(resp);
-      BOT.loadingOrders = [];
+      BOT.tpOrders = [];
 
       //CREATE NEW TP ORDERS
-      const tpOrders = HELPER.BatchLoadingOrderFactory(
-        (entryPrice = BOT.position.markPrice),
-        (currentHoldingAmount = BOT.position.size)
+      let breakeven = HELPER.getBreakEvenPrice(BOT.position.entryPrice, BOT.position.size, 0.0006);
+
+      if (isLast) {
+        console.log(`Last loading order was triggered.\nMaximizing capture profit by raising minProfit price.`);
+        breakeven = (BOT.position.markPrice - breakeven) / 1.618 + breakeven;
+      }
+
+      const tpOrders = HELPER.BatchTargetProfitOrderFactory(
+        BOT.position.markPrice,
+        HELPER.getMinProfitPrice(breakeven),
+        BOT.settings.tp_volume_percentages,
+        BOT.symbol,
+        BOT.position.size
       );
       return tpOrders;
     })
@@ -437,36 +488,42 @@ var LOADING_ORDER_TRIGGERED_HANDLER = function () {
 /**
  * Delete old LOADING orders and create new LOADING orders based on new position size and profit range.
  */
-var TP_ORDER_TRIGGERED_HANDLER = function () {
+var TP_ORDER_TRIGGERED_HANDLER = function (isLast) {
   BOT.isHandlingEvent = true;
   console.log(Constants.eventNames.TP_ORDER_TRIGGERED);
 
-  //DELETE OLD LOADING ORDERS
-  const ids = BOT.loadingOrders.map((order) => order.id);
-  cancelBatchOrder(BOT.symbol, ids)
-    .then((resp) => {
-      console.log(resp);
-      BOT.loadingOrders = [];
+  if (isLast) {
+    console.log("Last TP order was triggered.");
+    //Restart Bot
+    BOT.RestartBot();
+  } else {
+    //DELETE OLD LOADING ORDERS
+    const ids = BOT.loadingOrders.map((order) => order.id);
+    cancelBatchOrder(BOT.symbol, ids)
+      .then((resp) => {
+        console.log(resp);
+        BOT.loadingOrders = [];
 
-      //CREATE NEW LOADING ORDERS
-      const loadOrders = HELPER.BatchLoadingOrderFactory(
-        (entryPrice = BOT.position.markPrice),
-        (currentHoldingAmount = BOT.position.size)
-      );
-      return loadOrders;
-    })
-    .then((loadOrders) => {
-      // return createBatchOrder(BOT.symbol, loadOrders);
-      return createBatchConditionalOrder(BOT.symbol, loadOrders);
-    })
-    .then((responseOrders) => {
-      BOT.loadingOrders = responseOrders;
-      BOT.isHandlingEvent = false;
-    })
-    .catch((err) => {
-      console.log(err);
-      BOT.isHandlingEvent = false;
-    });
+        //CREATE NEW LOADING ORDERS
+        const loadOrders = HELPER.BatchLoadingOrderFactory(
+          (entryPrice = BOT.position.markPrice),
+          (currentHoldingAmount = BOT.position.size)
+        );
+        return loadOrders;
+      })
+      .then((loadOrders) => {
+        // return createBatchOrder(BOT.symbol, loadOrders);
+        return createBatchConditionalOrder(BOT.symbol, loadOrders);
+      })
+      .then((responseOrders) => {
+        BOT.loadingOrders = responseOrders;
+        BOT.isHandlingEvent = false;
+      })
+      .catch((err) => {
+        console.log(err);
+        BOT.isHandlingEvent = false;
+      });
+  }
 };
 
 //Assign the event handlers to each event:
@@ -488,7 +545,7 @@ eventEmitter.on(Constants.eventNames.TP_ORDER_TRIGGERED, TP_ORDER_TRIGGERED_HAND
  */
 BOT.StartBot = () => {
   if (BOT.isRunning) {
-    console.log("Bot is already running.");
+    console.log(`Bot is already running:\n${JSON.stringify(BOT, null, 2)}`);
     return;
   } else {
     //Open new position if size is 0 and begin poll. Otherwise return.
@@ -505,21 +562,18 @@ BOT.StartBot = () => {
           return;
         } else {
           //Open new position
-          console.log("Opening new position.");
+          console.log("Opening new position and accumulation orders.");
           BOT.isRunning = true;
-          //Create Accumulation Orders
-          const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = BOT.position.markPrice - 10000));
-          return accuOrders;
+          BOT.lastPhase = Constants.phases.ACCUMULATE;
+          BOT.currentPhase = Constants.phases.ACCUMULATE;
 
-          // console.log(BOT);
+          eventEmitter.emit(Constants.eventNames.PHASE_CHANGED);
+          BOT.intervalID = setInterval(pollEvents, 700);
         }
       })
-      .then((accuOrders) => {
-        createBatchOrder(BOT.symbol, accuOrders);
-
-        //TODO Return interval id as promise
-        //Begin polling for events
-        BOT.intervalID = setInterval(pollEvents, 700);
+      .catch((err) => {
+        console.log(err);
+        BOT.KillBot();
       });
   }
 };
@@ -528,10 +582,16 @@ BOT.StartBot = () => {
  * Stop Polling for events and cancel all open orders
  */
 BOT.CancelBot = async () => {
-  clearInterval(BOT.intervalID);
-  BOT.isPolling = false;
-
-  return cancelActiveOrders();
+  try {
+    clearInterval(BOT.intervalID);
+    BOT.intervalID = null;
+  } catch (err) {
+    console.log(err);
+  } finally {
+    BOT.isPolling = false;
+    BOT.isRunning = false;
+    return cancelActiveOrders();
+  }
 };
 
 /**
@@ -547,21 +607,43 @@ BOT.KillBot = async () => {
     .then((e) => {
       BOT.cash = e.cash;
       BOT.position = e.position;
-      return e;
+      return null;
     })
-    .then((e) => {
+    .then(() => {
       //Close position
-      return API.contract.orders.createOrder(
-        (size = e.position.size),
-        (symbol = "BTCUSD"),
-        (type = "MARKET"),
-        (side = "SELL"),
-        (price = e.position.markPrice),
-        (reduceOnly = true),
-        (conditionalObj = null)
-      );
+      if (BOT.position.size > 0) {
+        return API.contract.orders.createOrder(
+          (size = BOT.position.size),
+          (symbol = BOT.symbol),
+          (type = Constants.types.MARKET),
+          (side = Constants.sides.SELL),
+          (price = BOT.position.markPrice),
+          (reduceOnly = true),
+          (conditionalObj = null)
+        );
+      } else if (BOT.position < 0) {
+        return API.contract.orders.createOrder(
+          (size = BOT.position.size),
+          (symbol = BOT.symbol),
+          (type = Constants.types.MARKET),
+          (side = Constants.sides.BUY),
+          (price = BOT.position.markPrice),
+          (reduceOnly = true),
+          (conditionalObj = null)
+        );
+      } else {
+        return null;
+      }
     })
-    .catch((err) => console.log(err));
+    .catch(async (err) => {
+      console.log(err);
+      console.log("KillBot() failed. Trying again...");
+      await BOT.KillBot();
+    });
+};
+
+BOT.RestartBot = () => {
+  BOT.KillBot().then(() => BOT.StartBot());
 };
 
 BOT.TestFunc = () => {
@@ -593,8 +675,24 @@ BOT.TestFunc = () => {
   //   .catch((err) => console.error(err));
   // ----------------------------
 
-  pollEvents();
+  // pollEvents();
+  // TEST_createAndCancelLoadingOrders();
 };
+
+function TEST_createAndCancelLoadingOrders() {
+  const loading = HELPER.BatchLoadingOrderFactory(50000, 1000, 38000);
+  console.log(loading);
+  createBatchConditionalOrder(BOT.symbol, loading)
+    .then((orders) => {
+      console.log(orders);
+      orders = orders.map((order) => order.id);
+      return cancelBatchOrder(BOT.symbol, orders);
+    })
+    .then(() => console.log("Successfull deletion. Test passed."))
+    .catch((err) => {
+      console.log(err);
+    });
+}
 
 function resetBotOrders() {
   BOT.accumulationOrders = [];

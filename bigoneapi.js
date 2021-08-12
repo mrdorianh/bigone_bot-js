@@ -345,13 +345,18 @@ BIGONE.contract.orders.cancelActiveOrders = async (symbol) => {
   return BIGONE.contract.orders
     .getActiveOrdersList(symbol)
     .then((list) => {
-      if(list.length <= 0){
-        throw `No active orders returned!`
+      if (list.length <= 0) {
+        return list;
+      } else {
+        return list.map((order) => order.id);
       }
-      return list.map((order) => order.id);
     })
     .then((ids) => {
-      return BIGONE.contract.orders.cancelBatchOrder(symbol, ids);
+      if(ids.length > 0){
+      return BIGONE.contract.orders.cancelBatchOrder(symbol, ids);}
+      else{
+        return 'No active orders to cancel.';
+      }
     })
     .catch((err) => console.error(err));
 };

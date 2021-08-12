@@ -52,6 +52,7 @@ HELPER.orderFactory = (size, symbol, type, side, price, reduceOnly, conditionalO
     side: side,
     price: price,
     reduceOnly: reduceOnly,
+    conditional: null
   };
   if (conditionalObj != null) {
     order.conditional = conditionalObj;
@@ -68,27 +69,26 @@ HELPER.orderFactory = (size, symbol, type, side, price, reduceOnly, conditionalO
  * @param {*} symbol
  * @returns
  */
-HELPER.BatchTargetProfitOrderFactory = (currentPrice, minProfitPrice, profitVolumePercentArr, symbol, amount) => {
+HELPER.BatchTargetProfitOrderFactory = (currentPrice, minProfitPrice, profitVolumePercentArr, symbol, currentHoldings) => {
   const orderlist = [];
   let diff = currentPrice - minProfitPrice;
-  console.log(`diff is: ${diff}`);
+  // console.log(`diff is: ${diff}`);
   const tp_prices = [];
 
   for (let index = 0; index < profitVolumePercentArr.length; index++) {
     diff = diff / 1.6;
     //Set last price at minimum profit
     if (index + 1 === profitVolumePercentArr.length) {
-      tp_prices.push(parseFloat(minProfitPrice.toFixed(1)));
+      tp_prices.push(Math.floor(minProfitPrice));
     } else {
-      tp_prices.unshift(parseFloat((currentPrice - diff).toFixed(1)));
+      tp_prices.unshift(Math.floor(currentPrice - diff));
     }
   }
 
   for (let index = 0; index < profitVolumePercentArr.length; index++) {
-    const size = profitVolumePercentArr[index] * amount;
+    const size = profitVolumePercentArr[index] * currentHoldings;
     const conditional = HELPER.conditionalObjectFactory(tp_prices[index]);
-
-    orderlist.push(HELPER.orderFactory(size, symbol, "MARKET", "SELL", tp_prices[index], true, conditional));
+    orderlist.push(HELPER.orderFactory(size, symbol, Constants.types.MARKET, Constants.sides.SELL, tp_prices[index], true, conditional));
   }
   return orderlist;
 };
@@ -98,7 +98,7 @@ HELPER.BatchAccumulateOrderFactory = (
   deviationStep = 1.61803398875,
   maxLimit = 3000,
   symbol = "BTCUSD",
-  type = "LIMIT",
+  type = Constants.types.MARKET,
   side = "BUY"
 ) => {
   //Generate order sizes based on maxLimit size (1 = 1USD)
@@ -144,10 +144,15 @@ HELPER.BatchAccumulateOrderFactory = (
 
     //Buy in immediately on first order so remove its conditional.
     let conditional = null;
+
     //Apparently Conditionals don't work on batch orders.... keep it null if returning nothing;
 
-    if (index > 0) {
+    if (index <= 0) {
+      conditional = null;
+      type = Constants.types.MARKET;
+    } else {
       conditional = HELPER.conditionalObjectFactory(orderPrice);
+      // type = Constants.types.LIMIT;
     }
 
     const order = HELPER.orderFactory(
@@ -177,21 +182,19 @@ HELPER.BatchAccumulateOrderFactory = (
 HELPER.BatchLoadingOrderFactory = function (
   entryPrice,
   currentHoldingAmount = 0,
-  depth = 20,
-  deviationStep = 1.61803398875,
   maxLimit = 200000,
   symbol = Constants.symbols.BTCUSD,
   type = Constants.types.MARKET,
-  side = Constants.sides.BUY
+  side = Constants.sides.BUY,
+  depth = 20,
+  deviationStep = 1.61803398875
 ) {
   if (currentHoldingAmount === 0) {
     throw "CurrentHoldings input is 0. No orders created.";
   }
 
-
-  
-// █▀ █ ▀█ █▀▀
-// ▄█ █ █▄ ██▄
+  // █▀ █ ▀█ █▀▀
+  // ▄█ █ █▄ ██▄
 
   //Generate order sizes based on maxLimit size (1 = 1USD)
 
@@ -211,7 +214,7 @@ HELPER.BatchLoadingOrderFactory = function (
   for (let index = 1; index <= depth; index++) {
     if (totalOrderSize < maxLimit) {
       let nextOrderSize = (totalOrderSize / deviationStep) * Math.sin(index / depth);
-      
+
       if (totalOrderSize + nextOrderSize <= maxLimit) {
         totalOrderSize += nextOrderSize;
         totalOrderSizes.push(totalOrderSize);
@@ -234,16 +237,15 @@ HELPER.BatchLoadingOrderFactory = function (
     }
   }
 
-  
-// █▀█ █▀█ █ █▀▀ █▀▀
-// █▀▀ █▀▄ █ █▄▄ ██▄
+  // █▀█ █▀█ █ █▀▀ █▀▀
+  // █▀▀ █▀▄ █ █▄▄ ██▄
 
   //Generate price list with depth at 20% away from entry price.
   const lastPrice = Math.floor(entryPrice * 1.1); //40000 -> 48000
   orderPrices.unshift(lastPrice);
   let finalStep = 1.1;
   let step = deviationStep;
-  const stepIncrement = (deviationStep - finalStep) / orderSizes.length; 
+  const stepIncrement = (deviationStep - finalStep) / orderSizes.length;
 
   // let lastPrice = parseFloat((entryPrice - diff).toFixed(1));
   // let lastPrice = Math.floor(entryPrice - diff);
@@ -259,10 +261,8 @@ HELPER.BatchLoadingOrderFactory = function (
 
   console.log(`Intitial Holdings(USD/BTC): ${currentHoldingAmount}/${currentHoldingAmount / entryPrice}`);
 
-
-  
-// █▀▀ ▄▀█ █▀▀ ▀█▀ █▀█ █▀█ █▄█
-// █▀░ █▀█ █▄▄ ░█░ █▄█ █▀▄ ░█░
+  // █▀▀ ▄▀█ █▀▀ ▀█▀ █▀█ █▀█ █▄█
+  // █▀░ █▀█ █▄▄ ░█░ █▄█ █▀▄ ░█░
 
   //Now create orders with the generated prices and sizes
   const loadingOrders = [];
@@ -278,8 +278,6 @@ HELPER.BatchLoadingOrderFactory = function (
     //Buy in immediately on first order so remove its conditional.
     const conditional = HELPER.conditionalObjectFactory(orderPrice);
     //Apparently Conditionals don't work on batch orders.... keep it null if returning nothing;
-
-    
 
     const order = HELPER.orderFactory(
       (size = orderSize),
