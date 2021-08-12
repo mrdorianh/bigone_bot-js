@@ -270,11 +270,11 @@ HELPER.BatchLoadingOrderFactory = function (
     const orderPrice = Math.floor(orderPrices[index]);
     const orderSize = Math.floor(orderSizes[index]);
     const total = Math.floor(totalOrderSizes[index]);
-    console.log(
-      `${index}\nSize(USD): ${orderSize}\nSize(BTC): ${orderSize / orderPrice}\nPrice: ${orderPrice}\nTotal(USD/BTC): ${total}/${
-        total / orderPrice
-      }\n`
-    );
+    // console.log(
+    //   `${index}\nSize(USD): ${orderSize}\nSize(BTC): ${orderSize / orderPrice}\nPrice: ${orderPrice}\nTotal(USD/BTC): ${total}/${
+    //     total / orderPrice
+    //   }\n`
+    // );
     //Buy in immediately on first order so remove its conditional.
     const conditional = HELPER.conditionalObjectFactory(orderPrice);
     //Apparently Conditionals don't work on batch orders.... keep it null if returning nothing;

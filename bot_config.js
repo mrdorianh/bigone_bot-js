@@ -9,7 +9,7 @@ const BOT_CONFIG = {
     return result;
   },
   side: Constants.sides.BUY,
-  stopLossUSD: -200,
+  stopLossUSD: -100,
 };
 
 module.exports = BOT_CONFIG;
