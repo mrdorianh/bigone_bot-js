@@ -218,6 +218,21 @@ BIGONE.contract.misc.getMarketPrice = async () => {
   }).then((res) => res.json());
 };
 
+BIGONE.contract.misc.getLastPrice = async (symbol) => {
+  const url = `${API.CONTRACT_URL}/depth@${symbol}/snapshot`;
+  const token = await BIGONE.getToken();
+
+  return fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+    .then((res) => res.json())
+    .then((obj) => obj.lastPrice)
+    .catch((err) => console.log(err));
+};
+
 BIGONE.contract.orders.createOrder = async (size, symbol, type, side, price, reduceOnly, conditionalObj) => {
   try {
     const url = `${API.CONTRACT_URL}/orders`;
@@ -243,7 +258,9 @@ BIGONE.contract.orders.createOrder = async (size, symbol, type, side, price, red
         "Content-Type": "application/json",
       },
       body: JSON.stringify(preOrder),
-    }).then((res) => res.json());
+    })
+      .then((res) => res.json())
+      .catch((err) => console.log(err));
   } catch (err) {
     console.log(err);
   }
@@ -353,10 +370,10 @@ BIGONE.contract.orders.cancelActiveOrders = async (symbol) => {
       }
     })
     .then((ids) => {
-      if(ids.length > 0){
-      return BIGONE.contract.orders.cancelBatchOrder(symbol, ids);}
-      else{
-        return 'No active orders to cancel.';
+      if (ids.length > 0) {
+        return BIGONE.contract.orders.cancelBatchOrder(symbol, ids);
+      } else {
+        return "No active orders to cancel.";
       }
     })
     .catch((err) => console.error(err));

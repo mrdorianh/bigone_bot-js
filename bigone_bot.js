@@ -17,6 +17,7 @@ const BOT = {
   startTime: null,
   //Pull all symbol calls from here TODO
   symbol: Constants.symbols.BTCUSD,
+  lastPrice: 0,
   lastPosition: null,
   position: null,
   cash: null,
@@ -75,11 +76,18 @@ function getCashandPositionDetail() {
  * @param {number} delay Value in milliseconds between completion and the following call to create an order
  * @returns Array of response orders.
  */
-async function createBatchConditionalOrder(symbol, orders, delay = 20) {
+async function createBatchConditionalOrder(symbol, orders, delay = 30) {
   try {
+    console.log(`\nSubmitting Batch Order...`);
+    // end the line
     // return API.contract.orders.createBatchOrder(symbol, orders).then((respOrders) => respOrders);
     const respOrders = [];
     async function createConditionalOrder(order) {
+      if (order.price === 0) {
+        console.log("Error here with price at $0");
+        KillBot();
+        throw "Kill it.";
+      }
       return API.contract.orders.createOrder(
         (size = order.size),
         (symbol = order.symbol),
@@ -96,6 +104,7 @@ async function createBatchConditionalOrder(symbol, orders, delay = 20) {
         if (index < orders.length) {
           createConditionalOrder(orders[index])
             .then((order) => {
+              process.stdout.write(`Submitted order #${index + 1} of ${orders.length}.....\r`);
               respOrders.push(order);
               //Set timeout prevents "Maximum call stack size exceeded" error
               return setTimeout(() => resolve(recursiveOrder(++index)), delay);
@@ -125,7 +134,7 @@ async function createBatchConditionalOrder(symbol, orders, delay = 20) {
 
     return recursiveOrder(0)
       .then(() => {
-        // console.log("done");
+        console.log("\nOrders submitted successfully!");
         return respOrders;
       })
       .catch((err) => {
@@ -153,6 +162,9 @@ async function getActiveOrdersList(symbol = Constants.symbols.BTCUSD) {
   return API.contract.orders.getActiveOrdersList(symbol).catch((err) => console.error(err));
 }
 
+async function getLastPrice(symbol = Constants.symbols.BTCUSD) {
+  return API.contract.misc.getLastPrice(symbol);
+}
 //Cancels active orders, if any.
 async function cancelActiveOrders() {
   console.log("Attempting to cancel all active orders.");
@@ -173,7 +185,7 @@ function pollEvents() {
    * @returns true if failsafe was triggered, otherwise false.
    */
   function failsafe() {
-    if (BOT.position.unrealizedPnl * BOT.position.markPrice < BOT.settings.stopLossUSD) {
+    if (BOT.position.unrealizedPnl * BOT.lastPrice < BOT.settings.stopLossUSD) {
       console.log("Stoploss Triggered!");
       BOT.KillBot();
       return true;
@@ -184,11 +196,15 @@ function pollEvents() {
 
   if (!failsafe()) {
     if (!BOT.isPolling && !BOT.isHandlingEvent) {
-      console.log("Begin Poll");
+      // console.log("Begin Poll");
       BOT.isPolling = true;
       let activeOrders = [];
 
-      getCashandPositionDetail()
+      getLastPrice(BOT.symbol)
+        .then((price) => {
+          BOT.lastPrice = price;
+          return getCashandPositionDetail();
+        })
         .then((e) => {
           BOT.cash = e.cash;
           BOT.position = e.position;
@@ -204,9 +220,10 @@ function pollEvents() {
               reject("Phase Changed. Skipping poll on triggers while event is being handled...");
             } else {
               //Get all the active orders to check against triggers
-              const activeList = getActiveOrdersList(BOT.symbol);
-              activeOrders = activeList;
-              resolve(null);
+              getActiveOrdersList(BOT.symbol).then((activeList) => {
+                activeOrders = activeList;
+                resolve(null);
+              });
             }
           });
         })
@@ -257,17 +274,18 @@ function pollEvents() {
           endPoll();
         });
     } else {
-      console.log(`\nSkipping Poll:\nBOT.isPolling = ${BOT.isPolling}\nBOT.isHandlingEvent = ${BOT.isHandlingEvent}\n`);
+      // process.stdout.write(`Skipping Poll: BOT.isPolling = ${BOT.isPolling}; BOT.isHandlingEvent = ${BOT.isHandlingEvent}; BOT.currentPhase = ${BOT.currentPhase})     \r`);
     }
   }
   function endPoll() {
     BOT.isPolling = false;
     BOT.lastPosition = BOT.position;
-    console.log("End Poll");
+    // console.log("End Poll");
   }
   async function pollPhaseChanged() {
     function determineCurrentPhase() {
-      if (BOT.position.markPrice > BOT.settings.loading_threshhold(BOT.position.entryPrice)) {
+      const loadingThreshPrice = getLoadingThreshPrice();
+      if (BOT.lastPrice > loadingThreshPrice) {
         BOT.currentPhase = Constants.phases.LOADING;
       } else {
         BOT.currentPhase = Constants.phases.ACCUMULATE;
@@ -293,7 +311,7 @@ function pollEvents() {
           return false;
         } else {
           //TRIGGERED
-          const isLast = index + 1 === tpOrders.length;
+          const isLast = index + 1 === BOT.tpOrders.length;
           BOT.tpOrders.splice(index, 1);
           eventEmitter.emit(Constants.eventNames.TP_ORDER_TRIGGERED, isLast);
           return true;
@@ -315,7 +333,7 @@ function pollEvents() {
           return false;
         } else {
           //TRIGGERED
-          const isLast = index + 1 === loadingOrders.length;
+          const isLast = index + 1 === BOT.loadingOrders.length;
           BOT.loadingOrders.splice(index, 1);
           eventEmitter.emit(Constants.eventNames.LOADING_ORDER_TRIGGERED, isLast);
           return true;
@@ -329,6 +347,7 @@ function pollEvents() {
   async function pollAccumulateOrderTriggered(activeOrders) {
     if (BOT.currentPhase === Constants.phases.ACCUMULATE) {
       //Get the updated accumulation orders
+
       const activeIDs = activeOrders.map((activeOrder) => activeOrder.id);
       //Compare to see if any orders were triggered
       BOT.accumulationOrders.forEach((order, index) => {
@@ -337,7 +356,7 @@ function pollEvents() {
           return false;
         } else {
           //TRIGGERED
-          const isLast = index + 1 === accumulationOrders.length;
+          const isLast = index + 1 === BOT.accumulationOrders.length;
           BOT.accumulationOrders.splice(index, 1);
           eventEmitter.emit(Constants.eventNames.ACCUMULATE_ORDER_TRIGGERED, isLast);
           return true;
@@ -362,15 +381,22 @@ var eventEmitter = new events.EventEmitter();
 var PHASE_CHANGED_HANDLER = function () {
   BOT.isHandlingEvent = true;
   console.log(Constants.eventNames.PHASE_CHANGED);
-  console.log(JSON.stringify(BOT, null, 2));
-
+  console.log(BOT.currentPhase);
+  // console.log(JSON.stringify(BOT, null, 2));
+  // getLastPrice
   if (BOT.currentPhase === Constants.phases.ACCUMULATE) {
     //Cancel all Orders
-    cancelActiveOrders()
+    getLastPrice(BOT.symbol)
+      .then((price) => {
+        console.log(`Last Price: ${price}`);
+        BOT.lastPrice = price;
+        return cancelActiveOrders();
+      })
       .then(() => {
         resetBotOrders();
         // Create Accumulation orders
-        const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = e.position.markPrice));
+        //TODO request updated position if data is null or invalid
+        const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = BOT.lastPrice));
         return accuOrders;
       })
       .then((accuOrders) => {
@@ -380,6 +406,7 @@ var PHASE_CHANGED_HANDLER = function () {
         BOT.accumulationOrders = responseOrders;
         BOT.lastPhase = BOT.currentPhase;
         BOT.isHandlingEvent = false;
+        console.log(`-----------\nLoading Threshhold Price: ${getLoadingThreshPrice()}\n-----------`);
       })
       .catch((err) => {
         console.log(err);
@@ -387,15 +414,16 @@ var PHASE_CHANGED_HANDLER = function () {
         BOT.isHandlingEvent = false;
       });
   } else if (BOT.currentPhase === Constants.phases.LOADING) {
-    //Cancel all orders
-    cancelActiveOrders()
+    getLastPrice(BOT.symbol)
+      .then((price) => {
+        console.log(`Last Price: ${price}`);
+        BOT.lastPrice = price;
+        return cancelActiveOrders();
+      })
       .then(() => {
         resetBotOrders();
         // Create Loading orders
-        const loadOrders = HELPER.BatchLoadingOrderFactory(
-          (entryPrice = e.position.markPrice),
-          (currentHoldingAmount = BOT.position.size)
-        );
+        const loadOrders = HELPER.BatchLoadingOrderFactory((entryPrice = BOT.lastPrice), (currentHoldingAmount = BOT.position.size));
         return loadOrders;
       })
       .then((loadOrders) => {
@@ -405,11 +433,13 @@ var PHASE_CHANGED_HANDLER = function () {
         BOT.loadingOrders = responseOrders;
         BOT.lastPhase = BOT.currentPhase;
         BOT.isHandlingEvent = false;
+        console.log(`-----------\nLoading Threshhold Price: ${getLoadingThreshPrice()}\n-----------`);
       })
       .catch((err) => {
         console.log(err);
         BOT.lastPhase = BOT.currentPhase;
-        BOT.isHandlingEvent = false;
+        BOT.isHandlingEvent = false; //
+        // BOT.KillBOT();
       });
   } else {
     BOT.isHandlingEvent = false;
@@ -423,7 +453,8 @@ var PHASE_CHANGED_HANDLER = function () {
 var ACCUMULATE_ORDER_TRIGGERED_HANDLER = function (isLast) {
   BOT.isHandlingEvent = true;
   console.log(Constants.eventNames.ACCUMULATE_ORDER_TRIGGERED);
-  console.log(JSON.stringify(BOT, null, 2));
+  // console.log(JSON.stringify(BOT, null, 2));
+  console.log(BOT.position);
 
   if (isLast) {
     console.log("Last accumulation order was triggered.");
@@ -439,11 +470,22 @@ var ACCUMULATE_ORDER_TRIGGERED_HANDLER = function (isLast) {
 var LOADING_ORDER_TRIGGERED_HANDLER = function (isLast) {
   BOT.isHandlingEvent = true;
   console.log(Constants.eventNames.LOADING_ORDER_TRIGGERED);
-  console.log(JSON.stringify(BOT, null, 2));
+  // console.log(JSON.stringify(BOT, null, 2));
+  console.log(BOT.position);
 
   //DELETE OLD TP ORDERS
-  const ids = BOT.tpOrders.map((order) => order.id);
-  cancelBatchOrder(BOT.symbol, ids)
+  let ids = [];
+
+  if (BOT.tpOrders.length > 0) {
+    BOT.tpOrders.map((order) => order.id);
+  }
+
+  getLastPrice(BOT.symbol)
+    .then((price) => {
+      console.log(`Last Price: ${price}`);
+      BOT.lastPrice = price;
+      return cancelBatchOrder(BOT.symbol, ids);
+    })
     .then((resp) => {
       // console.log(resp);
       BOT.tpOrders = [];
@@ -453,11 +495,11 @@ var LOADING_ORDER_TRIGGERED_HANDLER = function (isLast) {
 
       if (isLast) {
         console.log(`Last loading order was triggered.\nMaximizing capture profit by raising minProfit price.`);
-        breakeven = (BOT.position.markPrice - breakeven) / 1.618 + breakeven;
+        breakeven = (BOT.lastPrice - breakeven) / 1.618 + breakeven;
       }
 
       const tpOrders = HELPER.BatchTargetProfitOrderFactory(
-        BOT.position.markPrice,
+        BOT.lastPrice,
         HELPER.getMinProfitPrice(breakeven),
         BOT.settings.tp_volume_percentages,
         BOT.symbol,
@@ -484,7 +526,8 @@ var LOADING_ORDER_TRIGGERED_HANDLER = function (isLast) {
 var TP_ORDER_TRIGGERED_HANDLER = function (isLast) {
   BOT.isHandlingEvent = true;
   console.log(Constants.eventNames.TP_ORDER_TRIGGERED);
-  console.log(JSON.stringify(BOT, null, 2));
+  // console.log(JSON.stringify(BOT, null, 2));
+  console.log(BOT.position);
 
   if (isLast) {
     console.log("Last TP order was triggered.");
@@ -492,17 +535,22 @@ var TP_ORDER_TRIGGERED_HANDLER = function (isLast) {
     BOT.RestartBot();
   } else {
     //DELETE OLD LOADING ORDERS
-    const ids = BOT.loadingOrders.map((order) => order.id);
-    cancelBatchOrder(BOT.symbol, ids)
+
+    let ids = [];
+    if (BOT.loadingOrders.length > 0) {
+      ids = BOT.loadingOrders.map((order) => order.id);
+    }
+    getLastPrice(BOT.symbol)
+      .then((price) => {
+        console.log(`Last Price: ${price}`);
+        BOT.lastPrice = price;
+        return cancelBatchOrder(BOT.symbol, ids);
+      })
       .then((resp) => {
         // console.log(resp);
         BOT.loadingOrders = [];
-
         //CREATE NEW LOADING ORDERS
-        const loadOrders = HELPER.BatchLoadingOrderFactory(
-          (entryPrice = BOT.position.markPrice),
-          (currentHoldingAmount = BOT.position.size)
-        );
+        const loadOrders = HELPER.BatchLoadingOrderFactory((entryPrice = BOT.lastPrice), (currentHoldingAmount = BOT.position.size));
         return loadOrders;
       })
       .then((loadOrders) => {
@@ -538,13 +586,17 @@ eventEmitter.on(Constants.eventNames.TP_ORDER_TRIGGERED, TP_ORDER_TRIGGERED_HAND
  * @returns
  */
 BOT.StartBot = () => {
-  console.log(BOT.StartBot.name);
+  // console.log(BOT.StartBot.name);
   if (BOT.isRunning) {
-    console.log(`Bot is already running:\n${JSON.stringify(BOT, null, 2)}`);
+    console.log(`Bot is already running:\n${BOT}`);
     return;
   } else {
     //Open new position if size is 0 and begin poll. Otherwise return.
-    getCashandPositionDetail()
+    getLastPrice(BOT.symbol)
+      .then((price) => {
+        BOT.lastPrice = price;
+        return getCashandPositionDetail();
+      })
       .then((e) => {
         BOT.cash = e.cash;
         BOT.position = e.position;
@@ -586,6 +638,8 @@ BOT.CancelBot = async () => {
   } finally {
     BOT.isPolling = false;
     BOT.isRunning = false;
+    BOT.isHandlingEvent = false;
+    resetBotOrders();
     return cancelActiveOrders();
   }
 };
@@ -604,17 +658,19 @@ BOT.KillBot = async () => {
     .then((e) => {
       BOT.cash = e.cash;
       BOT.position = e.position;
-      return null;
+      return getLastPrice(BOT.symbol);
     })
-    .then(() => {
+    .then((lastPrice) => {
       //Close position
+      BOT.lastPrice = lastPrice;
+
       if (BOT.position.size > 0) {
         return API.contract.orders.createOrder(
           (size = BOT.position.size),
           (symbol = BOT.symbol),
           (type = Constants.types.MARKET),
           (side = Constants.sides.SELL),
-          (price = BOT.position.markPrice),
+          (price = BOT.lastPrice),
           (reduceOnly = true),
           (conditionalObj = null)
         );
@@ -624,7 +680,7 @@ BOT.KillBot = async () => {
           (symbol = BOT.symbol),
           (type = Constants.types.MARKET),
           (side = Constants.sides.BUY),
-          (price = BOT.position.markPrice),
+          (price = BOT.lastPrice),
           (reduceOnly = true),
           (conditionalObj = null)
         );
@@ -647,7 +703,46 @@ BOT.RestartBot = () => {
 BOT.TestFunc = () => {
   // ----------------
   console.log(`\nTEST\n`);
+  getLastPrice(BOT.symbol)
+    .then((price) => {
+      console.log(`Last Price: ${price}`);
+      BOT.lastPrice = price;
+      return cancelActiveOrders();
+    })
+    .then(() => {
+      resetBotOrders();
+      // Create Loading orders
+
+      const loadOrders = HELPER.BatchLoadingOrderFactory((entryPrice = BOT.lastPrice), (currentHoldingAmount = 200));
+      return loadOrders;
+    })
+    .then((loadOrders) => {
+      return createBatchConditionalOrder(BOT.symbol, loadOrders);
+    })
+    .then((responseOrders) => {
+      BOT.loadingOrders = responseOrders;
+      BOT.lastPhase = BOT.currentPhase;
+      BOT.isHandlingEvent = false;
+      console.log(`-----------\nLoading Threshhold Price: ${getLoadingThreshPrice()}\n-----------`);
+      return cancelActiveOrders();
+    })
+    .catch((err) => {
+      console.log(err);
+      BOT.lastPhase = BOT.currentPhase;
+      BOT.isHandlingEvent = false;
+      return BOT.KillBot();
+    });
 };
+
+function getLoadingThreshPrice() {
+  try {
+    // console.log(BOT.position.entryPrice);
+    return BOT.settings.loading_threshhold(BOT.position.entryPrice);
+  } catch (err) {
+    // console.log(BOT.lastPrice);
+    return BOT.settings.loading_threshhold(BOT.lastPrice);
+  }
+}
 
 function TEST_createAndCancelLoadingOrders() {
   const loading = HELPER.BatchLoadingOrderFactory(50000, 1000, 38000);

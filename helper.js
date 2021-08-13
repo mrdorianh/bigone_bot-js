@@ -93,13 +93,14 @@ HELPER.BatchTargetProfitOrderFactory = (currentPrice, minProfitPrice, profitVolu
   return orderlist;
 };
 
+//We need to account for falling back into accumulation after a false loading phase (ex: already holding)
 HELPER.BatchAccumulateOrderFactory = (
   entryPrice,
   deviationStep = 1.61803398875,
-  maxLimit = 3000,
-  symbol = "BTCUSD",
+  maxLimit = 10000,
+  symbol = Constants.symbols.BTCUSD,
   type = Constants.types.MARKET,
-  side = "BUY"
+  side = Constants.sides.BUY
 ) => {
   //Generate order sizes based on maxLimit size (1 = 1USD)
 
@@ -123,9 +124,10 @@ HELPER.BatchAccumulateOrderFactory = (
     orderSizes.push(nextOrderSize);
   }
 
-  //Generate price list based on order size count with depth at 60% away from entry price.
-  const distance = entryPrice * 0.4;
+  //Generate price list based on order size count with depth at 10% away from entry price.
+  const distance = entryPrice * 0.9;
   let diff = entryPrice - distance;
+
   // let lastPrice = parseFloat((entryPrice - diff).toFixed(1));
   let lastPrice = Math.floor(entryPrice - diff);
   orderPrices.unshift(lastPrice);
@@ -186,7 +188,7 @@ HELPER.BatchLoadingOrderFactory = function (
   symbol = Constants.symbols.BTCUSD,
   type = Constants.types.MARKET,
   side = Constants.sides.BUY,
-  depth = 20,
+  depth = 18,
   deviationStep = 1.61803398875
 ) {
   if (currentHoldingAmount === 0) {
@@ -202,7 +204,7 @@ HELPER.BatchLoadingOrderFactory = function (
   const orderPrices = [];
   const totalOrderSizes = [];
 
-  const firstOrderSize = (currentHoldingAmount / deviationStep) * Math.sin(1 / depth);
+  const firstOrderSize = Math.max((currentHoldingAmount / deviationStep) * Math.sin(1 / depth), 4);
   // const firstOrderSize = currentHoldingAmount;
   orderSizes.push(firstOrderSize);
 
@@ -213,7 +215,8 @@ HELPER.BatchLoadingOrderFactory = function (
 
   for (let index = 1; index <= depth; index++) {
     if (totalOrderSize < maxLimit) {
-      let nextOrderSize = (totalOrderSize / deviationStep) * Math.sin(index / depth);
+      //Use the highest value between calculated and minimum order size;
+      let nextOrderSize = Math.max((totalOrderSize / deviationStep) * Math.sin(index / depth), totalOrderSize / 2);
 
       if (totalOrderSize + nextOrderSize <= maxLimit) {
         totalOrderSize += nextOrderSize;
@@ -240,8 +243,8 @@ HELPER.BatchLoadingOrderFactory = function (
   // █▀█ █▀█ █ █▀▀ █▀▀
   // █▀▀ █▀▄ █ █▄▄ ██▄
 
-  //Generate price list with depth at 20% away from entry price.
-  const lastPrice = Math.floor(entryPrice * 1.1); //40000 -> 48000
+  //Generate price list with depth at 5% away from entry price.
+  const lastPrice = Math.floor(entryPrice * 1.05); //40000 -> 48000
   orderPrices.unshift(lastPrice);
   let finalStep = 1.1;
   let step = deviationStep;
@@ -249,7 +252,7 @@ HELPER.BatchLoadingOrderFactory = function (
 
   // let lastPrice = parseFloat((entryPrice - diff).toFixed(1));
   // let lastPrice = Math.floor(entryPrice - diff);
-  let diff = lastPrice - entryPrice; //8000
+  let diff = lastPrice - (entryPrice * 0.97); //8000
   for (let index = 0; index < orderSizes.length - 1; index++) {
     // diff = diff / deviationStep; //4944
     diff = diff / step; //4944
@@ -270,11 +273,11 @@ HELPER.BatchLoadingOrderFactory = function (
     const orderPrice = Math.floor(orderPrices[index]);
     const orderSize = Math.floor(orderSizes[index]);
     const total = Math.floor(totalOrderSizes[index]);
-    // console.log(
-    //   `${index}\nSize(USD): ${orderSize}\nSize(BTC): ${orderSize / orderPrice}\nPrice: ${orderPrice}\nTotal(USD/BTC): ${total}/${
-    //     total / orderPrice
-    //   }\n`
-    // );
+    console.log(
+      `${index}\nSize(USD): ${orderSize}\nSize(BTC): ${orderSize / orderPrice}\nPrice: ${orderPrice}\nTotal(USD/BTC): ${total}/${
+        total / orderPrice
+      }\n`
+    );
     //Buy in immediately on first order so remove its conditional.
     const conditional = HELPER.conditionalObjectFactory(orderPrice);
     //Apparently Conditionals don't work on batch orders.... keep it null if returning nothing;
