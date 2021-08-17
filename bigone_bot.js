@@ -179,6 +179,15 @@ async function cancelActiveOrders() {
     });
 }
 
+async function pullBotCashAndPosition() {
+  return getCashandPositionDetail()
+    .then((e) => {
+      BOT.cash = e.cash;
+      BOT.position = e.position;
+    })
+    .catch((err) => err);
+}
+
 function pollEvents() {
   /**
    * Calls BOT.KillBot() if losses exceed value of BOT.settings.stopLossUSD.
@@ -203,11 +212,7 @@ function pollEvents() {
       getLastPrice(BOT.symbol)
         .then((price) => {
           BOT.lastPrice = price;
-          return getCashandPositionDetail();
-        })
-        .then((e) => {
-          BOT.cash = e.cash;
-          BOT.position = e.position;
+          return pullBotCashAndPosition();
         })
         .then(() => {
           // PHASE_CHANGED
@@ -382,8 +387,9 @@ var PHASE_CHANGED_HANDLER = function () {
   BOT.isHandlingEvent = true;
   console.log(Constants.eventNames.PHASE_CHANGED);
   console.log(BOT.currentPhase);
-  // console.log(JSON.stringify(BOT, null, 2));
-  // getLastPrice
+
+  // █▀▀ █▄░█ ▀█▀ █▀▀ █▀█   ▄▀█ █▀▀ █▀▀ █░█ █▀▄▀█ █░█ █░░ ▄▀█ ▀█▀ █▀▀
+  // ██▄ █░▀█ ░█░ ██▄ █▀▄   █▀█ █▄▄ █▄▄ █▄█ █░▀░█ █▄█ █▄▄ █▀█ ░█░ ██▄
   if (BOT.currentPhase === Constants.phases.ACCUMULATE) {
     //Cancel all Orders
     getLastPrice(BOT.symbol)
@@ -396,7 +402,10 @@ var PHASE_CHANGED_HANDLER = function () {
         resetBotOrders();
         // Create Accumulation orders
         //TODO request updated position if data is null or invalid
-        const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = BOT.lastPrice));
+        const accuOrders = HELPER.BatchAccumulateOrderFactory(
+          (entryPrice = BOT.lastPrice),
+          (currentHoldingSize = BOT.position.size)
+        );
         return accuOrders;
       })
       .then((accuOrders) => {
@@ -413,7 +422,10 @@ var PHASE_CHANGED_HANDLER = function () {
         BOT.lastPhase = BOT.currentPhase;
         BOT.isHandlingEvent = false;
       });
-  } else if (BOT.currentPhase === Constants.phases.LOADING) {
+  }
+  // █▀▀ █▄░█ ▀█▀ █▀▀ █▀█   █░░ █▀█ ▄▀█ █▀▄ █ █▄░█ █▀▀
+  // ██▄ █░▀█ ░█░ ██▄ █▀▄   █▄▄ █▄█ █▀█ █▄▀ █ █░▀█ █▄█
+  else if (BOT.currentPhase === Constants.phases.LOADING) {
     getLastPrice(BOT.symbol)
       .then((price) => {
         console.log(`Last Price: ${price}`);
@@ -422,18 +434,36 @@ var PHASE_CHANGED_HANDLER = function () {
       })
       .then(() => {
         resetBotOrders();
-        // Create Loading orders
+        // Create Loading and TP orders
         const loadOrders = HELPER.BatchLoadingOrderFactory((entryPrice = BOT.lastPrice), (currentHoldingAmount = BOT.position.size));
-        return loadOrders;
+
+        const minProfitPrice = HELPER.getMinProfitPrice(
+          HELPER.getBreakEvenPrice(BOT.position.entryPrice, BOT.position.size, 0.0006)
+        );
+        const tpOrders = HELPER.BatchTargetProfitOrderFactory(
+          BOT.lastPrice,
+          minProfitPrice,
+          BOT.settings.tp_volume_percentages,
+          BOT.symbol,
+          BOT.position.size
+        );
+        const loadAndTpOrders = [loadOrders, tpOrders];
+        return loadAndTpOrders;
       })
-      .then((loadOrders) => {
-        return createBatchConditionalOrder(BOT.symbol, loadOrders);
+      .then((loadAndTpOrders) => {
+        const loadOrders = loadAndTpOrders[0];
+        const tpOrders = loadAndTpOrders[1];
+        const loadPromise = createBatchConditionalOrder(BOT.symbol, loadOrders);
+        const tpPromise = createBatchConditionalOrder(BOT.symbol, tpOrders);
+        return Promise.all([loadPromise, tpPromise]);
       })
-      .then((responseOrders) => {
-        BOT.loadingOrders = responseOrders;
+      .then((responseOrdersArr) => {
+        BOT.loadingOrders = responseOrdersArr[0];
+        BOT.tpOrders = responseOrdersArr[1];
+        //TODO revert if orders did not process correctly
+
         BOT.lastPhase = BOT.currentPhase;
         BOT.isHandlingEvent = false;
-        console.log(`-----------\nLoading Threshhold Price: ${getLoadingThreshPrice()}\n-----------`);
       })
       .catch((err) => {
         console.log(err);
@@ -703,44 +733,22 @@ BOT.RestartBot = () => {
 BOT.TestFunc = () => {
   // ----------------
   console.log(`\nTEST\n`);
-  getLastPrice(BOT.symbol)
-    .then((price) => {
-      console.log(`Last Price: ${price}`);
-      BOT.lastPrice = price;
-      return cancelActiveOrders();
-    })
-    .then(() => {
-      resetBotOrders();
-      // Create Loading orders
 
-      const loadOrders = HELPER.BatchLoadingOrderFactory((entryPrice = BOT.lastPrice), (currentHoldingAmount = 200));
-      return loadOrders;
-    })
-    .then((loadOrders) => {
-      return createBatchConditionalOrder(BOT.symbol, loadOrders);
-    })
-    .then((responseOrders) => {
-      BOT.loadingOrders = responseOrders;
-      BOT.lastPhase = BOT.currentPhase;
-      BOT.isHandlingEvent = false;
-      console.log(`-----------\nLoading Threshhold Price: ${getLoadingThreshPrice()}\n-----------`);
-      return cancelActiveOrders();
-    })
-    .catch((err) => {
-      console.log(err);
-      BOT.lastPhase = BOT.currentPhase;
-      BOT.isHandlingEvent = false;
-      return BOT.KillBot();
-    });
 };
 
 function getLoadingThreshPrice() {
   try {
     // console.log(BOT.position.entryPrice);
-    return BOT.settings.loading_threshhold(BOT.position.entryPrice);
+    const entry = BOT.position.entryPrice;
+    if (entry === 0) {
+      throw "Entry is 0. Using last price.";
+    }
+    const loadingThreshPrice = BOT.settings.loading_threshhold(BOT.position.entryPrice);
+    return Math.floor(loadingThreshPrice);
   } catch (err) {
-    // console.log(BOT.lastPrice);
-    return BOT.settings.loading_threshhold(BOT.lastPrice);
+    console.log(err);
+    const loadingThreshPrice = BOT.settings.loading_threshhold(BOT.lastPrice);
+    return Math.floor(loadingThreshPrice);
   }
 }
 

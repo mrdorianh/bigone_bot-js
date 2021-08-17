@@ -29,7 +29,7 @@ BIGONE.init = (cfg) => {
 };
 
 BIGONE.getToken = () => {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const nonce = () => String(new Date() * 1000000);
     jwt.sign(
       {

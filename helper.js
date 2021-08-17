@@ -93,15 +93,17 @@ HELPER.BatchTargetProfitOrderFactory = (currentPrice, minProfitPrice, profitVolu
   return orderlist;
 };
 
-//We need to account for falling back into accumulation after a false loading phase (ex: already holding)
 HELPER.BatchAccumulateOrderFactory = (
   entryPrice,
-  deviationStep = 1.61803398875,
-  maxLimit = 10000,
+  currentHoldingSize = 0,
   symbol = Constants.symbols.BTCUSD,
   type = Constants.types.MARKET,
-  side = Constants.sides.BUY
+  side = Constants.sides.BUY,
+  deviationStep = 1.61803398875,
+  maxLimit = 20000,
 ) => {
+
+  maxLimit = maxLimit - currentHoldingSize;
   //Generate order sizes based on maxLimit size (1 = 1USD)
 
   //TODO make first order size a parameter of this function
@@ -112,7 +114,8 @@ HELPER.BatchAccumulateOrderFactory = (
 
   let totalOrderSize = firstOrderSize;
   while (totalOrderSize < maxLimit) {
-    let nextOrderSize = Math.ceil(orderSizes[orderSizes.length - 1] * deviationStep);
+    // let nextOrderSize = Math.ceil(orderSizes[orderSizes.length - 1] * deviationStep);
+    let nextOrderSize = Math.ceil(totalOrderSize);
     if (totalOrderSize + nextOrderSize <= maxLimit) {
       totalOrderSize += nextOrderSize;
     } else {
@@ -124,8 +127,8 @@ HELPER.BatchAccumulateOrderFactory = (
     orderSizes.push(nextOrderSize);
   }
 
-  //Generate price list based on order size count with depth at 10% away from entry price.
-  const distance = entryPrice * 0.9;
+  //Generate price list based on order size count with depth at 20% away from entry price.
+  const distance = entryPrice * 0.94;
   let diff = entryPrice - distance;
 
   // let lastPrice = parseFloat((entryPrice - diff).toFixed(1));
@@ -204,8 +207,8 @@ HELPER.BatchLoadingOrderFactory = function (
   const orderPrices = [];
   const totalOrderSizes = [];
 
-  const firstOrderSize = Math.max((currentHoldingAmount / deviationStep) * Math.sin(1 / depth), 4);
-  // const firstOrderSize = currentHoldingAmount;
+  // const firstOrderSize = Math.max((currentHoldingAmount / deviationStep) * Math.sin(1 / depth), 4);
+  const firstOrderSize = currentHoldingAmount;
   orderSizes.push(firstOrderSize);
 
   //USE depth for array length
@@ -216,7 +219,7 @@ HELPER.BatchLoadingOrderFactory = function (
   for (let index = 1; index <= depth; index++) {
     if (totalOrderSize < maxLimit) {
       //Use the highest value between calculated and minimum order size;
-      let nextOrderSize = Math.max((totalOrderSize / deviationStep) * Math.sin(index / depth), totalOrderSize / 2);
+      let nextOrderSize = Math.max((totalOrderSize / deviationStep) * Math.sin(index / depth), totalOrderSize / 2, 4);
 
       if (totalOrderSize + nextOrderSize <= maxLimit) {
         totalOrderSize += nextOrderSize;
@@ -278,9 +281,8 @@ HELPER.BatchLoadingOrderFactory = function (
         total / orderPrice
       }\n`
     );
-    //Buy in immediately on first order so remove its conditional.
+
     const conditional = HELPER.conditionalObjectFactory(orderPrice);
-    //Apparently Conditionals don't work on batch orders.... keep it null if returning nothing;
 
     const order = HELPER.orderFactory(
       (size = orderSize),
