@@ -425,11 +425,17 @@ function pollEvents() {
 var events = require("events");
 const HELPER = require("./helper.js");
 var eventEmitter = new events.EventEmitter();
+//Assign the event handlers to each event:
+eventEmitter.on(Constants.eventNames.PHASE_CHANGED, PHASE_CHANGED_HANDLER);
+eventEmitter.on(Constants.eventNames.ACCUMULATE_ORDER_TRIGGERED, ACCUMULATE_ORDER_TRIGGERED_HANDLER);
+eventEmitter.on(Constants.eventNames.LOADING_ORDER_TRIGGERED, LOADING_ORDER_TRIGGERED_HANDLER);
+eventEmitter.on(Constants.eventNames.TP_ORDER_TRIGGERED, TP_ORDER_TRIGGERED_HANDLER);
 
 //Create event handlers:
 
 var PHASE_CHANGED_HANDLER = function () {
   BOT.isHandlingEvent = true;
+  console.log(`\n`);
   console.log(Constants.eventNames.PHASE_CHANGED);
   console.log(BOT.currentPhase);
 
@@ -439,7 +445,6 @@ var PHASE_CHANGED_HANDLER = function () {
     //Cancel all Orders
     getLastPrice(BOT.symbol)
       .then((price) => {
-        console.log(`Last Price: ${price}`);
         BOT.lastPrice = price;
         return cancelActiveOrders();
       })
@@ -460,7 +465,7 @@ var PHASE_CHANGED_HANDLER = function () {
         BOT.accumulationOrders = responseOrders;
         BOT.lastPhase = BOT.currentPhase;
         BOT.isHandlingEvent = false;
-        console.log(`-----------\nLoading Threshhold Price: ${getLoadingThreshPrice()}\n-----------`);
+        // console.log(`-----------\nLoading Threshhold Price: ${getLoadingThreshPrice()}\n-----------`);
       })
       .catch((err) => {
         console.log(err);
@@ -473,7 +478,6 @@ var PHASE_CHANGED_HANDLER = function () {
   else if (BOT.currentPhase === Constants.phases.LOADING) {
     getLastPrice(BOT.symbol)
       .then((price) => {
-        console.log(`Last Price: ${price}`);
         BOT.lastPrice = price;
         return cancelActiveOrders();
       })
@@ -528,8 +532,7 @@ var PHASE_CHANGED_HANDLER = function () {
 var ACCUMULATE_ORDER_TRIGGERED_HANDLER = function (isLast) {
   BOT.isHandlingEvent = true;
   console.log(Constants.eventNames.ACCUMULATE_ORDER_TRIGGERED);
-  // console.log(JSON.stringify(BOT, null, 2));
-  console.log(BOT.position);
+  console.log(`Remaining accumulation orders: ${BOT.accumulationOrders.length}`);
 
   if (isLast) {
     console.log("Last accumulation order was triggered.");
@@ -545,8 +548,7 @@ var ACCUMULATE_ORDER_TRIGGERED_HANDLER = function (isLast) {
 var LOADING_ORDER_TRIGGERED_HANDLER = function (isLast) {
   BOT.isHandlingEvent = true;
   console.log(Constants.eventNames.LOADING_ORDER_TRIGGERED);
-  // console.log(JSON.stringify(BOT, null, 2));
-  console.log(BOT.position);
+  console.log(`Remaining loading orders: ${BOT.loadingOrders.length}`);
 
   //DELETE OLD TP ORDERS
   let ids = [];
@@ -557,12 +559,10 @@ var LOADING_ORDER_TRIGGERED_HANDLER = function (isLast) {
 
   getLastPrice(BOT.symbol)
     .then((price) => {
-      console.log(`Last Price: ${price}`);
       BOT.lastPrice = price;
       return cancelBatchOrder(BOT.symbol, ids);
     })
-    .then((resp) => {
-      // console.log(resp);
+    .then(() => {
       BOT.tpOrders = [];
 
       //CREATE NEW TP ORDERS
@@ -601,15 +601,13 @@ var LOADING_ORDER_TRIGGERED_HANDLER = function (isLast) {
 var TP_ORDER_TRIGGERED_HANDLER = function (isLast) {
   BOT.isHandlingEvent = true;
   console.log(Constants.eventNames.TP_ORDER_TRIGGERED);
-  // console.log(JSON.stringify(BOT, null, 2));
-  console.log(BOT.position);
+  console.log(`Remaining take-profit orders: ${BOT.tpOrders.length}`);
+  
+  
 
   if (isLast) {
     console.log("Last TP order was triggered.");
     return;
-    //Restart Bot
-    //
-    // BOT.RestartBot();
   } else {
     //DELETE OLD LOADING ORDERS
 
@@ -619,12 +617,10 @@ var TP_ORDER_TRIGGERED_HANDLER = function (isLast) {
     }
     getLastPrice(BOT.symbol)
       .then((price) => {
-        console.log(`Last Price: ${price}`);
         BOT.lastPrice = price;
         return cancelBatchOrder(BOT.symbol, ids);
       })
-      .then((resp) => {
-        // console.log(resp);
+      .then(() => {
         BOT.loadingOrders = [];
         //CREATE NEW LOADING ORDERS
         const loadOrders = HELPER.BatchLoadingOrderFactory((entryPrice = BOT.lastPrice), (currentHoldingAmount = BOT.position.size));
@@ -645,11 +641,7 @@ var TP_ORDER_TRIGGERED_HANDLER = function (isLast) {
   }
 };
 
-//Assign the event handlers to each event:
-eventEmitter.on(Constants.eventNames.PHASE_CHANGED, PHASE_CHANGED_HANDLER);
-eventEmitter.on(Constants.eventNames.ACCUMULATE_ORDER_TRIGGERED, ACCUMULATE_ORDER_TRIGGERED_HANDLER);
-eventEmitter.on(Constants.eventNames.LOADING_ORDER_TRIGGERED, LOADING_ORDER_TRIGGERED_HANDLER);
-eventEmitter.on(Constants.eventNames.TP_ORDER_TRIGGERED, TP_ORDER_TRIGGERED_HANDLER);
+
 
 //Fire an event example:
 // eventEmitter.emit(Constants.eventNames.PHASE_CHANGED, phases.INVACTIVE, phases.ACCUMULATE);
@@ -663,7 +655,7 @@ eventEmitter.on(Constants.eventNames.TP_ORDER_TRIGGERED, TP_ORDER_TRIGGERED_HAND
  * @returns
  */
 BOT.StartBot = () => {
-  // console.log(BOT.StartBot.name);
+   console.log('StartBot();\n');
   if (BOT.isRunning) {
     console.log(`Bot is already running:\n${BOT}`);
     return;
@@ -707,7 +699,7 @@ BOT.StartBot = () => {
  */
 BOT.CancelBot = async () => {
   try {
-    console.log(BOT.CancelBot.name);
+    console.log('CancelBot()\n');
     clearInterval(BOT.intervalID);
     BOT.intervalID = null;
   } catch (err) {
@@ -726,8 +718,9 @@ BOT.CancelBot = async () => {
  * returns Closing Order;
  */
 BOT.KillBot = async () => {
-  console.log(BOT.KillBot.name);
+  console.log('KillBot();\n');
   //Cancel Pending
+  //TODO simplify this first section by using our preset functions
   return BOT.CancelBot()
     .then(() => {
       return getCashandPositionDetail();
@@ -773,7 +766,7 @@ BOT.KillBot = async () => {
 };
 
 BOT.RestartBot = () => {
-  console.log(BOT.RestartBot.name);
+  console.log('RestartBot();\n');
   BOT.KillBot().then(() => BOT.StartBot());
 };
 
@@ -784,7 +777,6 @@ BOT.TestFunc = () => {
 
 function getLoadingThreshPrice() {
   try {
-    // console.log(BOT.position.entryPrice);
     const entry = BOT.position.entryPrice;
     if (entry === 0) {
       throw "Entry is 0. Using last price.";
@@ -798,20 +790,7 @@ function getLoadingThreshPrice() {
   }
 }
 
-function TEST_createAndCancelLoadingOrders() {
-  const loading = HELPER.BatchLoadingOrderFactory(50000, 1000, 38000);
-  console.log(loading);
-  createBatchConditionalOrder(BOT.symbol, loading)
-    .then((orders) => {
-      console.log(orders);
-      orders = orders.map((order) => order.id);
-      return cancelBatchOrder(BOT.symbol, orders);
-    })
-    .then(() => console.log("Successfull deletion. Test passed."))
-    .catch((err) => {
-      console.log(err);
-    });
-}
+
 
 function resetBotOrders() {
   BOT.accumulationOrders = [];
@@ -819,53 +798,7 @@ function resetBotOrders() {
   BOT.tpOrders = [];
 }
 
-function TEST_createAndCancelOrderBatch() {
-  getCashandPositionDetail()
-    .then((e) => {
-      BOT.cash = e.cash;
-      BOT.position = e.position;
-      BOT.startTime = new Date().toISOString();
-      // console.log(BOT);
-      const accuOrders = HELPER.BatchAccumulateOrderFactory((entryPrice = e.position.markPrice - 10000));
-      console.log(accuOrders);
-      return accuOrders;
-    })
-    .then((accuOrders) => {
-      return createBatchConditionalOrder("BTCUSD", accuOrders);
-    })
-    .then((responseOrders) => {
-      BOT.accumulationOrders = responseOrders;
-      return BOT;
-      //
-    })
-    .then((bot) => {
-      console.log(bot);
 
-      console.log(`\n TESTING FETCH ORDERS AFTER START TIME: ${BOT.startTime}`);
-      //THIS SHOULD NOT BE NESTED, TEST ONLY
-      return API.contract.orders
-        .getOrderList(BOT.startTime)
-        .then((list) => {
-          var ids = list.map((order) => order.id);
-          //Here we need to filter against the relative type of order (ACC, LOAD, TP)
-          console.log(ids);
-          return ids;
-        })
-        .then((ids) => {
-          return cancelBatchOrder("BTCUSD", ids);
-        })
-        .then((resp) => {
-          console.log("Looks like orders were canceled!");
-          //Response should be empty if successfull
-          console.log(resp);
-        })
-        .catch((err) => console.log(err));
-      //
-    })
-    .catch((err) => {
-      console.log(err);
-    });
-}
 
 // ░█▀▀▀ █─█ █▀▀█ █▀▀█ █▀▀█ ▀▀█▀▀ █▀▀
 // ░█▀▀▀ ▄▀▄ █──█ █──█ █▄▄▀ ──█── ▀▀█

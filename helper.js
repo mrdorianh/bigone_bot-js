@@ -71,8 +71,9 @@ HELPER.orderFactory = (size, symbol, type, side, price, reduceOnly, conditionalO
  */
 HELPER.BatchTargetProfitOrderFactory = (currentPrice, minProfitPrice, profitVolumePercentArr, symbol, currentHoldings) => {
   const orderlist = [];
+  //Keep position open to track realized PNL over time.
+  currentHoldings = currentHoldings - 4;
   let diff = currentPrice - minProfitPrice;
-  // console.log(`diff is: ${diff}`);
   const tp_prices = [];
 
   for (let index = 0; index < profitVolumePercentArr.length; index++) {
@@ -172,15 +173,6 @@ HELPER.BatchAccumulateOrderFactory = (
     accumulationOrders.push(order);
   }
 
-  //TEST
-  // console.log(accumulationOrders);
-  // console.log(`Array Counts: [ ${orderPrices.length}, ${orderSizes.length}]`);
-  // for (let index = 0; index < orderPrices.length; index++) {
-  //   const p = orderPrices[index];
-  //   const s = orderSizes[index];
-  //   console.log(`${s} @ ${p}`);
-  // }
-
   return accumulationOrders;
 };
 
@@ -205,7 +197,7 @@ HELPER.BatchLoadingOrderFactory = function (
 
   const orderSizes = [];
   const orderPrices = [];
-  const totalOrderSizes = [];
+  // const totalOrderSizes = [];
 
   // const firstOrderSize = Math.max((currentHoldingAmount / deviationStep) * Math.sin(1 / depth), 4);
   const firstOrderSize = currentHoldingAmount;
@@ -214,7 +206,7 @@ HELPER.BatchLoadingOrderFactory = function (
   //USE depth for array length
 
   let totalOrderSize = firstOrderSize + currentHoldingAmount;
-  totalOrderSizes.push(totalOrderSize);
+  // totalOrderSizes.push(totalOrderSize);
 
   for (let index = 1; index <= depth; index++) {
     if (totalOrderSize < maxLimit) {
@@ -223,7 +215,7 @@ HELPER.BatchLoadingOrderFactory = function (
 
       if (totalOrderSize + nextOrderSize <= maxLimit) {
         totalOrderSize += nextOrderSize;
-        totalOrderSizes.push(totalOrderSize);
+        // totalOrderSizes.push(totalOrderSize);
       } else {
         //Remove excess to stay within limit.
         const excess = totalOrderSize + nextOrderSize - maxLimit;
@@ -233,7 +225,7 @@ HELPER.BatchLoadingOrderFactory = function (
           break;
         } else {
           totalOrderSize += nextOrderSize;
-          totalOrderSizes.push(totalOrderSize);
+          // totalOrderSizes.push(totalOrderSize);
         }
       }
       orderSizes.push(nextOrderSize);
@@ -265,7 +257,7 @@ HELPER.BatchLoadingOrderFactory = function (
     orderPrices.unshift(nextPrice);
   }
 
-  console.log(`Intitial Holdings(USD/BTC): ${currentHoldingAmount}/${currentHoldingAmount / entryPrice}`);
+  // console.log(`\nIntitial Holdings(USD/BTC): ${currentHoldingAmount}/${currentHoldingAmount / entryPrice}`);
 
   // █▀▀ ▄▀█ █▀▀ ▀█▀ █▀█ █▀█ █▄█
   // █▀░ █▀█ █▄▄ ░█░ █▄█ █▀▄ ░█░
@@ -275,12 +267,12 @@ HELPER.BatchLoadingOrderFactory = function (
   for (let index = 0; index < orderSizes.length; index++) {
     const orderPrice = Math.floor(orderPrices[index]);
     const orderSize = Math.floor(orderSizes[index]);
-    const total = Math.floor(totalOrderSizes[index]);
-    console.log(
-      `${index}\nSize(USD): ${orderSize}\nSize(BTC): ${orderSize / orderPrice}\nPrice: ${orderPrice}\nTotal(USD/BTC): ${total}/${
-        total / orderPrice
-      }\n`
-    );
+    // const total = Math.floor(totalOrderSizes[index]);
+    // console.log(
+    //   `${index}\nSize(USD): ${orderSize}\nSize(BTC): ${orderSize / orderPrice}\nPrice: ${orderPrice}\nTotal(USD/BTC): ${total}/${
+    //     total / orderPrice
+    //   }\n`
+    // );
 
     const conditional = HELPER.conditionalObjectFactory(orderPrice);
 
@@ -312,36 +304,8 @@ HELPER.didPositionChange = (currentPosition, lastPosition) => {
 // ░█▀▀█ ░█▀▀▀ ░█▀▀█ ▀█▀ ░█▄─░█ 　 ▀▀█▀▀ ░█▀▀▀ ░█▀▀▀█ ▀▀█▀▀
 // ░█▀▀▄ ░█▀▀▀ ░█─▄▄ ░█─ ░█░█░█ 　 ─░█── ░█▀▀▀ ─▀▀▀▄▄ ─░█──
 // ░█▄▄█ ░█▄▄▄ ░█▄▄█ ▄█▄ ░█──▀█ 　 ─░█── ░█▄▄▄ ░█▄▄▄█ ─░█──
-// HELPER.BatchAccumulateOrderFactory(42000);
-// console.log(HELPER.BatchLoadingOrderFactory(44000, currentHoldingAmount = 0.4));
-// const list = HELPER.TargetProfitOrderFactory(
-//   50000,
-//   49500,
-//   [0.1, 0.15, 0.1, 0.15, 0.1, 0.08, 0.08, 0.08, 0.08],
-//   "BTCUSD",
-//   "MARKET",
-//   "BUY",
-//   true,
-//   {
-//     type: "REACH",
-//     price: 0,
-//     priceType: "MARKET_PRICE",
-//   }
-// );
-// console.log(list);
 
-// p1 = {
-//   size: 1
-// }
-// p2 = {
-//   size: 2
-// }
-// console.log(HELPER.didPositionChange(p1,p2));
 
-// const bep = HELPER.getBreakEvenPrice(40000, 6.7, 0.0006);
-// console.log(bep);
-
-// console.log(HELPER.getMinProfitPrice(bep));
 
 // ░█▀▀▀ ░█▄─░█ ░█▀▀▄ 　 ▀▀█▀▀ ░█▀▀▀ ░█▀▀▀█ ▀▀█▀▀
 // ░█▀▀▀ ░█░█░█ ░█─░█ 　 ─░█── ░█▀▀▀ ─▀▀▀▄▄ ─░█──
