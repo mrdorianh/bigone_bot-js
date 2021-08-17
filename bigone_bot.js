@@ -295,7 +295,7 @@ function pollEvents() {
       if (BOT.lastPrice > loadingThreshPrice) {
         BOT.currentPhase = Constants.phases.LOADING;
       }
-      //if below loading thresh and currently loading and we can tp orders waiting, stay in loading until profits are captured.
+      //if below loading thresh and currently loading and we tp orders waiting, stay in loading until profits are captured.
       else if (BOT.currentPhase === Constants.phases.LOADING && BOT.tpOrders.length > 0) {
         // BOT.currentPhase = Constants.phases.LOADING;
         return;
@@ -305,62 +305,91 @@ function pollEvents() {
     }
     determineCurrentPhase();
     if (BOT.lastPhase != BOT.currentPhase) {
+      //TRIGGERED
       eventEmitter.emit(Constants.eventNames.PHASE_CHANGED);
       return true;
     } else {
+      //UNTRIGGERED
       return false;
     }
   }
 
   async function pollTpOrderTriggered(activeOrders) {
-    if (BOT.currentPhase === Constants.phases.LOADING) {
+    if (BOT.currentPhase === Constants.phases.LOADING && BOT.tpOrders.length > 0) {
       //Get the updated accumulation orders
       const activeIDs = activeOrders.map((activeOrder) => activeOrder.id);
       //Compare to see if any orders were triggered
+
+      let triggeredCount = 0;
+      let isLast = false;
+
       BOT.tpOrders.forEach((order, index) => {
         if (activeIDs.includes(order.id)) {
           //UNTRIGGERED
-          return false;
         } else {
           //TRIGGERED
-          const isLast = index + 1 === BOT.tpOrders.length;
+          isLast = index + 1 === BOT.tpOrders.length;
           BOT.tpOrders.splice(index, 1);
-          eventEmitter.emit(Constants.eventNames.TP_ORDER_TRIGGERED, isLast);
-          return true;
+          triggeredCount++;
         }
       });
+
+      if (triggeredCount > 0) {
+        //TRIGGERED
+        eventEmitter.emit(Constants.eventNames.TP_ORDER_TRIGGERED, isLast);
+        return true;
+      } else {
+        //UNTRIGGERED
+        return false;
+      }
     } else {
+      //UNTRIGGERED
       return false;
     }
   }
 
   async function pollLoadingOrderTriggered(activeOrders) {
-    if (BOT.currentPhase === Constants.phases.LOADING) {
+    if (BOT.currentPhase === Constants.phases.LOADING && BOT.loadingOrders.length > 0) {
       //Get the updated accumulation orders
       const activeIDs = activeOrders.map((activeOrder) => activeOrder.id);
       //Compare to see if any orders were triggered
+      let triggeredCount = 0;
+      let isLast = false;
+
       BOT.loadingOrders.forEach((order, index) => {
         if (activeIDs.includes(order.id)) {
           //UNTRIGGERED
-          return false;
         } else {
           //TRIGGERED
-          const isLast = index + 1 === BOT.loadingOrders.length;
+          isLast = index + 1 === BOT.loadingOrders.length;
           BOT.loadingOrders.splice(index, 1);
-          eventEmitter.emit(Constants.eventNames.LOADING_ORDER_TRIGGERED, isLast);
-          return true;
+          triggeredCount++;
         }
       });
+
+      if (triggeredCount > 0) {
+        //TRIGGERED
+        eventEmitter.emit(Constants.eventNames.LOADING_ORDER_TRIGGERED, isLast);
+        return true;
+      } else {
+        //UNTRIGGERED
+        return false;
+      }
     } else {
+      //UNTRIGGERED
       return false;
     }
   }
 
   async function pollAccumulateOrderTriggered(activeOrders) {
-    if (BOT.currentPhase === Constants.phases.ACCUMULATE) {
+    if (BOT.currentPhase === Constants.phases.ACCUMULATE && BOT.accumulationOrders.length > 0) {
       //Get the updated accumulation orders
 
       const activeIDs = activeOrders.map((activeOrder) => activeOrder.id);
+
+      let triggeredCount = 0;
+      let isLast = false;
+
       //Compare to see if any orders were triggered
       BOT.accumulationOrders.forEach((order, index) => {
         if (activeIDs.includes(order.id)) {
@@ -368,13 +397,22 @@ function pollEvents() {
           return false;
         } else {
           //TRIGGERED
-          const isLast = index + 1 === BOT.accumulationOrders.length;
+          isLast = index + 1 === BOT.accumulationOrders.length;
           BOT.accumulationOrders.splice(index, 1);
-          eventEmitter.emit(Constants.eventNames.ACCUMULATE_ORDER_TRIGGERED, isLast);
-          return true;
+          triggeredCount++;
         }
       });
+
+      if (triggeredCount > 0) {
+        //TRIGGERED
+        eventEmitter.emit(Constants.eventNames.ACCUMULATE_ORDER_TRIGGERED, isLast);
+        return true;
+      } else {
+        //UNTRIGGERED
+        return false;
+      }
     } else {
+      //UNTRIGGERED
       return false;
     }
   }
@@ -568,8 +606,10 @@ var TP_ORDER_TRIGGERED_HANDLER = function (isLast) {
 
   if (isLast) {
     console.log("Last TP order was triggered.");
+    return;
     //Restart Bot
-    BOT.RestartBot();
+    //
+    // BOT.RestartBot();
   } else {
     //DELETE OLD LOADING ORDERS
 
