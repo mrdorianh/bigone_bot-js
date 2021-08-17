@@ -290,8 +290,15 @@ function pollEvents() {
   async function pollPhaseChanged() {
     function determineCurrentPhase() {
       const loadingThreshPrice = getLoadingThreshPrice();
+      // switch loading to acc only after all tp triggers
+
       if (BOT.lastPrice > loadingThreshPrice) {
         BOT.currentPhase = Constants.phases.LOADING;
+      }
+      //if below loading thresh and currently loading and we can tp orders waiting, stay in loading until profits are captured.
+      else if (BOT.currentPhase === Constants.phases.LOADING && BOT.tpOrders.length > 0) {
+        // BOT.currentPhase = Constants.phases.LOADING;
+        return;
       } else {
         BOT.currentPhase = Constants.phases.ACCUMULATE;
       }
@@ -733,7 +740,6 @@ BOT.RestartBot = () => {
 BOT.TestFunc = () => {
   // ----------------
   console.log(`\nTEST\n`);
-
 };
 
 function getLoadingThreshPrice() {
